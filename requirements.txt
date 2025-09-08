@@ -1,0 +1,7 @@
+comtypes
+pypdf
+PyMuPDF
+numpy
+
+reportlab
+pillow
