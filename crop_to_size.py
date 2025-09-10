@@ -10,7 +10,7 @@ import numpy as np
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.colors import HexColor
+from reportlab.lib.colors import HexColor, Color
 from reportlab.lib.units import mm
 import tempfile
 import io
@@ -167,6 +167,7 @@ def detect_border(np_image, tolerance=10, skip=1):
     # If border detected, determine border color: take the first pixel of top border or fallback
 
     border_color = average_color(border_sizes, np_image, channels, skip)
+    print("#############BorderColor", border_color)
     return border_color, border_sizes
     if minsize > 0:
         if border_sizes["top"] > 0:
@@ -475,8 +476,9 @@ def add_border_with_reportlab(
 
     # Create canvas with same dimensions as original page
     c = canvas.Canvas(path, pagesize=(page_width, page_height))
+    print("border color", border_color)
 
-    border_color = "000000"  # for debugging
+    # border_color = "000000"  # for debugging
     # Convert border color from hex string to ReportLab color
     if isinstance(border_color, str):
         if len(border_color) == 8:  # RRGGBBAA format
@@ -488,6 +490,16 @@ def add_border_with_reportlab(
         )
     else:
         fill_color = border_color
+        # convert 0-255 range to hex
+        print("test", border_color)
+        if isinstance(border_color, tuple):
+            fill_color = Color(
+                border_color[0] / 255, border_color[1] / 255, border_color[2] / 255
+            )
+            print("test", fill_color)
+
+    if fill_color == None:
+        fill_color = Color(1, 1, 1, 0)
 
     c.setFillColor(fill_color)
 
@@ -858,14 +870,14 @@ def crop_and_scale_page(
             page, scaled_width, scaled_height, target_width, target_height
         )
     else:
-
-        add_border_to_page(
-            page=page,
-            scaled_width=scaled_width,
-            scaled_height=scaled_height,
-            target_width=target_width,
-            target_height=target_height,
-            border_color=border_color,
+        print("##########################################")
+        page = scale_page_with_padding(
+            page,
+            target_width_mm,
+            target_height_mm,
+            border_color=results["border_color"],
+            # border_color=(2, 254, 2),
+            overlapping_factor=0,
         )
 
     print(f"Final page size: {target_width_mm}x{target_height_mm}mm")
@@ -1032,7 +1044,7 @@ def main():
 def test_scaling():
     from millimeter_paper_generator import create_test_pdf
 
-    pdf_path = create_test_pdf(100, 100, border_width_mm=6.0, border_color=(0, 1, 0))
+    pdf_path = create_test_pdf(100, 100, border_width_mm=0.0, border_color=(0, 1, 0))
     print(pdf_path)
     # result = detect_pdf_border(pdf_path, tolerance=20)
     # crop_and_scale_page(pdf_path, target_width=80, target_height=80, border_color=
