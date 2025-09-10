@@ -291,6 +291,7 @@ def scaled_borders_to_target_size(target_width_mm, target_height_mm, results):
 def rotate_page_for_optimal_fit(
     page, target_width, target_height, enable_rotation=False
 ):
+    # TODO
     """Rotate page if it would result in better fit to target dimensions
 
     Args:
@@ -304,20 +305,19 @@ def rotate_page_for_optimal_fit(
     """
     current_width, current_height = get_page_dimensions(page)
 
-    print(
-        f"Original page size: {points_to_mm(current_width):.1f}x{points_to_mm(current_height):.1f}mm"
-    )
-
     rotate = False
     if enable_rotation and should_rotate(
         current_width, current_height, target_width, target_height
     ):
         rotate = True
         current_width, current_height = current_height, current_width
-        page.rotate(90)
+        rotated_page = page.rotate(90)
         print("Rotated page 90 degrees for better fit")
+    else:
+        rotated_page = page
+        print("No rotation applied")
 
-    return rotate, current_width, current_height
+    return rotated_page, rotate, current_width, current_height
 
 
 def scale_page_to_fit(
@@ -620,6 +620,8 @@ def expand_page_centric(
     """
     page_width, page_height = get_page_dimensions(page)
 
+    print("pagesizte", page_width, page_height, target_width, target_height)
+
     # Check if page is already larger than target dimensions
     if page_width > target_width + 0.1:
         raise ValueError(
@@ -715,30 +717,45 @@ def crop_and_scale_page(
     target_width = mm_to_points(target_width_mm)
     target_height = mm_to_points(target_height_mm)
 
-    # Step 1: Rotate page if beneficial
-    rotated, current_width, current_height = rotate_page_for_optimal_fit(
-        page, target_width, target_height, enable_rotation
+    print(f"Target size: {target_width_mm}x{target_height_mm}mm")
+    current_height = page.mediabox.height
+    current_width = page.mediabox.width
+    print(
+        f"Current page size: {points_to_mm(page.mediabox.width):.1f}x{points_to_mm(page.mediabox.height):.1f}mm"
     )
+
+    # Step 1: Rotate page if beneficial
+    if False:
+        page, rotated, current_width2, current_height2 = rotate_page_for_optimal_fit(
+            page, target_width, target_height, enable_rotation
+        )
+
+    if enable_rotation and should_rotate(
+        current_width, current_height, target_width, target_height
+    ):
+        target_height, target_width = target_width, target_height
+        page = page.rotate(90)  # TODO ask if nescessary
 
     # safe page to file
 
     # generate a random path for a temp file
-    import random
-    import string
+    temp_pdf_buffer = io.BytesIO()
+    temp_writer = PdfWriter()
+    temp_writer.add_page(page)
+    temp_writer.write(temp_pdf_buffer)
+    temp_pdf_buffer.seek(0)
 
-    temp_pdf_path = (
-        "temp_"
-        + "".join(random.choices(string.ascii_letters + string.digits, k=8))
-        + ".pdf"
-    )
-    with open(temp_pdf_path, "wb") as temp_pdf_file:
-        temp_writer = PdfWriter()
-        temp_writer.add_page(page)
-        temp_writer.write(temp_pdf_file)
+    # Write buffer to temporary file for fitz (PyMuPDF) compatibility # TODO requires fix later...
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+        temp_file.write(temp_pdf_buffer.getvalue())
+        temp_pdf_path = temp_file.name
 
     results = detect_pdf_border(temp_pdf_path, tolerance=10, dpi=150, skip=3)
 
     os.remove(temp_pdf_path)
+
+    #
+
     if results:
         scaled_borders = scaled_borders_to_target_size(
             target_width_mm, target_height_mm, results
@@ -858,7 +875,7 @@ def process_pdf(
     output_path,
     target_width_mm=148,
     target_height_mm=105,
-    enable_rotation=True,
+    enable_rotation=False,
     crop_to_fill=None,
     border_color=(1, 1, 1),
 ):
@@ -870,7 +887,7 @@ def process_pdf(
         target_width_mm: Target width in millimeters
         target_height_mm: Target height in millimeters
         enable_rotation: Whether to enable automatic rotation for better fit
-        crop_to_fill: If True (default), crop content to fill area. If False, add borders.
+        crop_to_fill: TODO If True (default), crop content to fill area. If False, add borders.
         border_color: RGB color tuple for border when crop_to_fill=False (default: white)
     """
     try:
@@ -894,7 +911,8 @@ def process_pdf(
                     crop_to_fill,
                     border_color,
                 )
-                writer.add_page(page)
+                # processed_page.rotate(90)
+                writer.add_page(processed_page)
 
             # Write the output PDF
             with open(output_path, "wb") as output_file:
@@ -907,6 +925,10 @@ def process_pdf(
         sys.exit(1)
     except Exception as e:
         print(f"Error processing PDF: {str(e)}")
+        # print stacktrace
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
 
 
@@ -1007,20 +1029,32 @@ def main():
 def test_scaling():
     from millimeter_paper_generator import create_test_pdf
 
-    pdf_path = create_test_pdf(110, 100, border_width_mm=6.0, border_color=(1, 0, 0))
+    pdf_path = create_test_pdf(100, 100, border_width_mm=6.0, border_color=(0, 1, 0))
     print(pdf_path)
     # result = detect_pdf_border(pdf_path, tolerance=20)
     # crop_and_scale_page(pdf_path, target_width=80, target_height=80, border_color=
     # convert to a6+
 
-    process_pdf(
-        input_path=pdf_path,
-        output_path="test_output_scaling.pdf",
-        target_width_mm=148 + 3,
-        target_height_mm=105 + 3,
-        crop_to_fill=False,
-        # border_color=(black),
-    )
+    if False:
+        process_pdf(
+            input_path=pdf_path,
+            output_path="test_output_scaling.pdf",
+            target_width_mm=148 + 3,
+            target_height_mm=105 + 3,
+            crop_to_fill=False,
+            enable_rotation=True,
+            # border_color=(black),
+        )
+    else:
+        process_pdf(
+            input_path=pdf_path,
+            output_path="test_output_scaling.pdf",
+            target_width_mm=105 + 3,
+            target_height_mm=148 + 3,
+            crop_to_fill=False,
+            enable_rotation=True,
+            # border_color=(black),
+        )
 
 
 if __name__ == "__main__":
