@@ -34,10 +34,17 @@ def get_page_dimensions(page):
         box = page.mediaBox
     else:
         raise ValueError("Cannot find media box")
+        # todo difference to page_rect = page.rect
 
     width = float(box.width)
     height = float(box.height)
     return width, height
+
+
+def get_page_dimensions_in_mm(page):
+    """Get page dimensions in millimeters"""
+    width, height = get_page_dimensions(page)
+    return points_to_mm(width), points_to_mm(height)
 
 
 def calculate_scale_factor(current_width, current_height, target_width, target_height):
@@ -220,9 +227,7 @@ def detect_pdf_border(pdf_path, page_number=0, tolerance=10, dpi=150, skip=1):
                 f"Page {page_number} not found in PDF (has {len(pdf_doc)} pages)"
             )
         page = pdf_doc[page_number]
-        page_rect = page.rect
-        page_width_mm = points_to_mm(page_rect.width)
-        page_height_mm = points_to_mm(page_rect.height)
+        page_width_mm, page_height_mm = get_page_dimensions_in_mm(page)
 
         zoom = dpi / 72.0
         mat = fitz.Matrix(zoom, zoom)
@@ -271,13 +276,12 @@ def detect_pdf_border(pdf_path, page_number=0, tolerance=10, dpi=150, skip=1):
 
 def scaled_borders_to_target_size(target_width_mm, target_height_mm, results):
     """Scale detected border sizes to target dimensions"""
-    page_width_mm, page_height_mm = results["page_size_mm"]
+
     border_sizes_mm = results["border_sizes_mm"]
 
-    scale_x = target_width_mm / page_width_mm
-    scale_y = target_height_mm / page_height_mm
-
-    smallest_scaling = min(scale_x, scale_y)
+    smallest_scaling = get_scaling_to_fit_results(
+        target_width_mm, target_height_mm, results
+    )
 
     scaled_borders = {
         "top": border_sizes_mm["top"] * smallest_scaling,
@@ -550,76 +554,6 @@ def expand_page_centric(
     """
     page_width, page_height = get_page_dimensions(page)
 
-    # Check if page is already larger than target dimensions
-    if page_width > target_width + 0.1:
-        raise ValueError(
-            f"Page width ({points_to_mm(page_width):.1f}mm) is larger than target width "
-            f"({points_to_mm(target_width):.1f}mm). Cannot expand to smaller size."
-        )
-
-    if page_height > target_height + 0.1:
-        raise ValueError(
-            f"Page height ({points_to_mm(page_height):.5f}mm) is larger than target height "
-            f"({points_to_mm(target_height):.5f}mm). Cannot expand to smaller size."
-        )
-
-    # Warn if page is already the target size
-    if abs(page_width - target_width) < 0.1 and abs(page_height - target_height) < 0.1:
-        print("Warning: Page is already at target dimensions, no expansion needed.")
-        return page
-
-    # Calculate how much border to add on each side to center the content
-    border_x = (target_width - page_width) / 2
-    border_y = (target_height - page_height) / 2
-
-    print(
-        f"Adding borders: {points_to_mm(border_x):.1f}mm left/right, {points_to_mm(border_y):.1f}mm top/bottom"
-    )
-
-    # Set the media box to the exact target size with content centered
-    page.mediabox.lower_left = (-border_x, -border_y)
-    page.mediabox.upper_right = (page_width + border_x, page_height + border_y)
-
-    # Set crop box to show only the target area
-    page.cropbox.lower_left = (-border_x, -border_y)
-    page.cropbox.upper_right = (target_width - border_x, target_height - border_y)
-
-    # Also set trim box and bleed box if they exist
-    if hasattr(page, "trimbox"):
-        page.trimbox.lower_left = (-border_x, -border_y)
-        page.trimbox.upper_right = (
-            target_width - border_x,
-            target_height - border_y,
-        )
-
-    if hasattr(page, "bleedbox"):
-        page.bleedbox.lower_left = (-border_x, -border_y)
-        page.bleedbox.upper_right = (
-            target_width - border_x,
-            target_height - border_y,
-        )
-    return page, (border_x, border_y)
-
-
-def expand_page_centric(
-    page,
-    target_width,
-    target_height,
-):
-    """Add borders to expand page to target dimensions
-    Args:
-        page: PDF page object to process
-        target_width: Target width in points
-        target_height: Target height in points
-
-    Returns:
-        page: Modified page object
-
-    Raises:
-        ValueError: If page is already larger than target dimensions
-    """
-    page_width, page_height = get_page_dimensions(page)
-
     print("pagesizte", page_width, page_height, target_width, target_height)
 
     # Check if page is already larger than target dimensions
@@ -691,8 +625,69 @@ def expand_page_centric(
     return page, (border_x, border_y)
 
 
+def get_scaling_to_fit_results(target_width_mm, target_height_mm, results):
+
+    page_width_mm, page_height_mm = results["page_size_mm"]
+
+    return get_scaling_to_fit(
+        target_width_mm, target_height_mm, page_width_mm, page_height_mm
+    )
+
+
+def get_scaling_to_fit(
+    target_width_mm, target_height_mm, page_width_mm, page_height_mm
+):
+
+    scale_x = target_width_mm / page_width_mm
+    scale_y = target_height_mm / page_height_mm
+    smallest_scaling = min(scale_x, scale_y)
+    return smallest_scaling
+
+
 def rgb_to_hex(rgb):
     return "{:02x}{:02x}{:02x}".format(rgb[0], rgb[1], rgb[2])
+
+
+def scale_page_with_padding(
+    page,
+    target_width,
+    target_height,
+    border_color,
+    borders_sizes_mm=None,
+    overlapping_factor=0,
+):
+    smallest_scaling = get_scaling_to_fit(
+        target_width, target_height, *get_page_dimensions(page)
+    )
+
+    page.scale(smallest_scaling, smallest_scaling)
+
+    # add padding around center to match target size
+    page, (border_x, border_y) = expand_page_centric(page, target_width, target_height)
+    current_width, current_height = get_page_dimensions(page)
+
+    packet = io.BytesIO()
+
+    page_width, page_height = get_page_dimensions(page)
+    # Use ReportLab instead of pypdf annotations
+    add_border_with_reportlab(
+        packet,
+        page_width,
+        page_height,
+        border_x,
+        border_y,
+        borders_sizes_mm,
+        border_color,
+        overlapping_factor,
+    )
+
+    # Read the temporary PDF and merge with original
+    border_reader = PdfReader(packet)
+    border_page = border_reader.pages[0]
+
+    # Merge the border page with the original page
+    page.merge_page(border_page)
+    return page
 
 
 def crop_and_scale_page(
@@ -757,69 +752,45 @@ def crop_and_scale_page(
     #
 
     if results:
+
         scaled_borders = scaled_borders_to_target_size(
             target_width_mm, target_height_mm, results
         )
         print("Scaled border Size:", scaled_borders)
         min_border_size = get_min_border_size(scaled_borders)
         if min_border_size >= 3.0:
+            # add coloured padding
             print(
                 f"Significant border detected (min {min_border_size:.1f}mm). Consider printing without cropping."
             )
+
             # todo write a function, that scales the pdf to smalest target size
-            page_width_mm, page_height_mm = results["page_size_mm"]
-            scale_x = target_width_mm / page_width_mm
-            scale_y = target_height_mm / page_height_mm
-            smallest_scaling = min(scale_x, scale_y)
+
+            smallest_scaling = get_scaling_to_fit_results(
+                target_width_mm, target_height_mm, results
+            )
             print(f"Scaling page by {smallest_scaling:.3f} to fit target size")
             # page.scale(smallest_scaling, smallest_scaling)
             non_uniform_scaling = False
             if non_uniform_scaling:
-                page.scale(scale_x, scale_y)
+                # todo dosnt work well.
+                # throw not implemented message
+                raise NotImplementedError("Non-uniform scaling not implemented")
+                page.scale(
+                    target_width_mm / results["page_size_mm"][0],
+                    target_height_mm / results["page_size_mm"][1],
+                )
             else:
-                page.scale(smallest_scaling, smallest_scaling)
-                current_width, current_height = get_page_dimensions(page)
-                print(
-                    f"New page size after scaling: {points_to_mm(current_width):.1f}x{points_to_mm(current_height):.1f}mm"
-                )
+                get_page_dimensions_in_mm(page)
 
-                # add padding around center
-                page, (border_x, border_y) = expand_page_centric(
-                    page, target_width, target_height
-                )
-                current_width, current_height = get_page_dimensions(page)
-                print(
-                    f"New page size after scaling: {points_to_mm(current_width):.1f}x{points_to_mm(current_height):.1f}mm"
-                )
-
-                # writer.add_page(page)
-
-                border_color = results["border_color"]
-
-                packet = io.BytesIO()
-
-                page_width = float(page.mediabox.width)
-                page_height = float(page.mediabox.height)
-                # Use ReportLab instead of pypdf annotations
-                add_border_with_reportlab(
-                    packet,
-                    page_width,
-                    page_height,
-                    border_x,
-                    border_y,
+                page = scale_page_with_padding(
+                    page,
+                    target_width_mm,
+                    target_height_mm,
+                    results["border_color"],
                     results["border_sizes_mm"],
-                    border_color,
+                    overlapping_factor=0.5,
                 )
-
-                # Read the temporary PDF and merge with original
-                from pypdf import PdfReader
-
-                border_reader = PdfReader(packet)
-                border_page = border_reader.pages[0]
-
-                # Merge the border page with the original page
-                page.merge_page(border_page)
-
                 return page
 
             # todo increas pdf
@@ -831,6 +802,7 @@ def crop_and_scale_page(
             # add borders in right color
             # todo add skip area to border
             # return page
+            print("####################### still used##########################")
             newPage = add_border_to_page(
                 page,
                 scaled_width,
@@ -861,8 +833,14 @@ def crop_and_scale_page(
             page, scaled_width, scaled_height, target_width, target_height
         )
     else:
+
         add_border_to_page(
-            page, scaled_width, scaled_height, target_width, target_height, border_color
+            page=page,
+            scaled_width=scaled_width,
+            scaled_height=scaled_height,
+            target_width=target_width,
+            target_height=target_height,
+            border_color=border_color,
         )
 
     print(f"Final page size: {target_width_mm}x{target_height_mm}mm")
@@ -1052,7 +1030,7 @@ def test_scaling():
             target_width_mm=105 + 3,
             target_height_mm=148 + 3,
             crop_to_fill=False,
-            enable_rotation=True,
+            enable_rotation=False,
             # border_color=(black),
         )
 
