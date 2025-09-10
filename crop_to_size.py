@@ -167,7 +167,7 @@ def detect_border(np_image, tolerance=10, skip=1):
     # If border detected, determine border color: take the first pixel of top border or fallback
 
     border_color = average_color(border_sizes, np_image, channels, skip)
-    print("#############BorderColor", border_color)
+    # print("#############BorderColor", border_color)
     return border_color, border_sizes
     if minsize > 0:
         if border_sizes["top"] > 0:
@@ -198,6 +198,52 @@ def detect_border(np_image, tolerance=10, skip=1):
         border_color = None
 
 
+def convert_pdf_page_to_image(pdf_path, page_number=0, dpi=150):
+    """
+    Convert a PDF page to a numpy image array.
+
+    Args:
+        pdf_path: Path to the PDF file
+        page_number: Page number to convert (0-based)
+        dpi: DPI for PDF to image conversion (higher = more accurate but slower)
+
+    Returns:
+        tuple: (img_array, page_width_mm, page_height_mm, pixels_per_mm)
+            img_array: numpy array of the image
+            page_width_mm: page width in millimeters
+            page_height_mm: page height in millimeters
+            pixels_per_mm: conversion factor from pixels to millimeters
+    """
+    try:
+        pdf_doc = fitz.open(pdf_path)
+        if page_number >= len(pdf_doc):
+            raise ValueError(
+                f"Page {page_number} not found in PDF (has {len(pdf_doc)} pages)"
+            )
+        page = pdf_doc[page_number]
+        page_width_mm, page_height_mm = get_page_dimensions_in_mm(page)
+
+        zoom = dpi / 72.0
+        mat = fitz.Matrix(zoom, zoom)
+        pix = page.get_pixmap(matrix=mat)
+
+        # Convert to numpy array
+        img_data = np.frombuffer(pix.samples, dtype=np.uint8)
+        if pix.n >= 3:
+            img_array = img_data.reshape(pix.height, pix.width, pix.n)
+        else:
+            img_array = img_data.reshape(pix.height, pix.width)
+
+        pdf_doc.close()
+
+        pixels_per_mm = dpi / 25.4
+
+        return img_array, page_width_mm, page_height_mm, pixels_per_mm
+    except Exception as e:
+        print(f"Error converting PDF to image: {str(e)}")
+        return None, None, None, None
+
+
 def detect_pdf_border(pdf_path, page_number=0, tolerance=10, dpi=150, skip=1):
     """
     Detect borders in a PDF page (color-independent) and calculate their size using detect_border.
@@ -222,26 +268,13 @@ def detect_pdf_border(pdf_path, page_number=0, tolerance=10, dpi=150, skip=1):
         }
     """
     try:
-        pdf_doc = fitz.open(pdf_path)
-        if page_number >= len(pdf_doc):
-            raise ValueError(
-                f"Page {page_number} not found in PDF (has {len(pdf_doc)} pages)"
-            )
-        page = pdf_doc[page_number]
-        page_width_mm, page_height_mm = get_page_dimensions_in_mm(page)
+        # Use the new conversion function
+        img_array, page_width_mm, page_height_mm, pixels_per_mm = (
+            convert_pdf_page_to_image(pdf_path, page_number, dpi)
+        )
 
-        zoom = dpi / 72.0
-        mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat)
-
-        # Convert to numpy array
-        img_data = np.frombuffer(pix.samples, dtype=np.uint8)
-        if pix.n >= 3:
-            img_array = img_data.reshape(pix.height, pix.width, pix.n)
-        else:
-            img_array = img_data.reshape(pix.height, pix.width)
-
-        pdf_doc.close()
+        if img_array is None:
+            return None
 
         # save image for debugging
         if False:
@@ -249,8 +282,6 @@ def detect_pdf_border(pdf_path, page_number=0, tolerance=10, dpi=150, skip=1):
 
             img = Image.fromarray(img_array)
             img.save("debug_page_image.png")
-
-        pixels_per_mm = dpi / 25.4
 
         # Use detect_border to get border sizes and color
         border_color, border_sizes_pixels = detect_border(
@@ -1056,7 +1087,7 @@ def test_scaling():
             output_path="test_output_scaling.pdf",
             target_width_mm=148 + 3,
             target_height_mm=105 + 3,
-            crop_to_fill=False,
+            crop_to_fill=True,
             enable_rotation=True,
             # border_color=(black),
         )
