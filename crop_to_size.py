@@ -465,9 +465,13 @@ def add_border_with_reportlab(
     overdue_border=1,  # in points
 ):
     """Add colored border rectangles using ReportLab"""
-    # TODO overlapping factor dosnt work well. Most propably an issue of border_sizes_mm
-    overlapping_factor = overlapping_factor * 0.5
-    overlapping_factor = mm * overlapping_factor
+    # Convert border_sizes_mm to points for proper calculation
+    border_sizes_points = {
+        side: mm_to_points(size_mm) for side, size_mm in border_sizes_mm.items()
+    }
+
+    # Apply overlapping factor (now unitless)
+    overlapping_factor = overlapping_factor
 
     # Create canvas with same dimensions as original page
     c = canvas.Canvas(path, pagesize=(page_width, page_height))
@@ -498,8 +502,7 @@ def add_border_with_reportlab(
     rect(
         -overdue_border,
         -overdue_border,
-        # mm_to_points(border_sizes_mm["left"]),
-        (border_x) + overlapping_factor * (border_sizes_mm["left"]) + overdue_border,
+        (border_x) + overlapping_factor * border_sizes_points["left"] + overdue_border,
         page_height + 2 * overdue_border,
         fill=1,
         stroke=0,
@@ -509,9 +512,9 @@ def add_border_with_reportlab(
     print("top")
     rect(
         -overdue_border,
-        page_height - (border_y) - overlapping_factor * (border_sizes_mm["top"]),
+        page_height - (border_y) - overlapping_factor * border_sizes_points["top"],
         page_width + 2 * overdue_border,
-        (border_y) + overlapping_factor * (border_sizes_mm["top"]) + overdue_border,
+        (border_y) + overlapping_factor * border_sizes_points["top"] + overdue_border,
         fill=1,
         stroke=0,
     )
@@ -519,9 +522,9 @@ def add_border_with_reportlab(
     # right
     print("right")
     rect(
-        page_width - (border_x) - overlapping_factor * (border_sizes_mm["right"]),
+        page_width - (border_x) - overlapping_factor * border_sizes_points["right"],
         -overdue_border,
-        (border_x) + overlapping_factor * (border_sizes_mm["right"]) + overdue_border,
+        (border_x) + overlapping_factor * border_sizes_points["right"] + overdue_border,
         page_height + 2 * overdue_border,
         fill=1,
         stroke=0,
@@ -532,7 +535,9 @@ def add_border_with_reportlab(
         -overdue_border,
         -overdue_border,
         page_width + 2 * overdue_border,
-        (border_y) + overlapping_factor * (border_sizes_mm["bottom"]) + overdue_border,
+        (border_y)
+        + overlapping_factor * border_sizes_points["bottom"]
+        + overdue_border,
         fill=1,
         stroke=0,
     )
@@ -657,20 +662,33 @@ def rgb_to_hex(rgb):
 
 def scale_page_with_padding(
     page,
-    target_width,
-    target_height,
+    target_width_mm,
+    target_height_mm,
     border_color,
     borders_sizes_mm={"top": 0, "bottom": 0, "left": 0, "right": 0},
     overlapping_factor=0,
 ):
+    # Convert target dimensions to points
+    target_width_points = mm_to_points(target_width_mm)
+    target_height_points = mm_to_points(target_height_mm)
+
+    # Get current page dimensions in points
+    current_width_points, current_height_points = get_page_dimensions(page)
+
+    # Calculate scaling factor
     smallest_scaling = get_scaling_to_fit(
-        target_width, target_height, *get_page_dimensions(page)
+        target_width_mm,
+        target_height_mm,
+        points_to_mm(current_width_points),
+        points_to_mm(current_height_points),
     )
 
     page.scale(smallest_scaling, smallest_scaling)
 
     # add padding around center to match target size
-    page, (border_x, border_y) = expand_page_centric(page, target_width, target_height)
+    page, (border_x, border_y) = expand_page_centric(
+        page, target_width_points, target_height_points
+    )
     current_width, current_height = get_page_dimensions(page)
 
     packet = io.BytesIO()
