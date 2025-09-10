@@ -462,17 +462,17 @@ def add_border_with_reportlab(
     border_sizes_mm,
     border_color,
     overlapping_factor=0.5,
+    overdue_border=1,  # in points
 ):
     """Add colored border rectangles using ReportLab"""
-
-    # print page size
-    # Get page dimensions
-
-    # Create temporary PDF with border rectangles
+    # TODO overlapping factor dosnt work well. Most propably an issue of border_sizes_mm
+    overlapping_factor = overlapping_factor * 0.5
+    overlapping_factor = mm * overlapping_factor
 
     # Create canvas with same dimensions as original page
     c = canvas.Canvas(path, pagesize=(page_width, page_height))
 
+    border_color = "000000"  # for debugging
     # Convert border color from hex string to ReportLab color
     if isinstance(border_color, str):
         if len(border_color) == 8:  # RRGGBBAA format
@@ -487,45 +487,52 @@ def add_border_with_reportlab(
 
     c.setFillColor(fill_color)
 
+    def rect(x, y, width, height, fill=1, stroke=0):
+        if width > 0 and height > 0:
+            c.rect(x, y, width, height, fill=fill, stroke=stroke)
+        else:
+            print(f"Skipping rectangle with non-positive dimensions: {width}x{height}")
+
     # left
-    c.rect(
-        0,
-        0,
+    print("left")
+    rect(
+        -overdue_border,
+        -overdue_border,
         # mm_to_points(border_sizes_mm["left"]),
-        (border_x) + overlapping_factor * mm_to_points(border_sizes_mm["left"]),
-        page_height,
+        (border_x) + overlapping_factor * (border_sizes_mm["left"]) + overdue_border,
+        page_height + 2 * overdue_border,
         fill=1,
         stroke=0,
     )
 
     # top
-    c.rect(
-        0,
-        page_height
-        - (border_y)
-        - overlapping_factor * mm_to_points(border_sizes_mm["top"]),
-        page_width,
-        (border_y) + overlapping_factor * mm_to_points(border_sizes_mm["top"]),
+    print("top")
+    rect(
+        -overdue_border,
+        page_height - (border_y) - overlapping_factor * (border_sizes_mm["top"]),
+        page_width + 2 * overdue_border,
+        (border_y) + overlapping_factor * (border_sizes_mm["top"]) + overdue_border,
         fill=1,
         stroke=0,
     )
+
     # right
-    c.rect(
-        page_width
-        - (border_x)
-        - overlapping_factor * mm_to_points(border_sizes_mm["right"]),
-        0,
-        (border_x) + overlapping_factor * mm_to_points(border_sizes_mm["right"]),
-        page_height,
+    print("right")
+    rect(
+        page_width - (border_x) - overlapping_factor * (border_sizes_mm["right"]),
+        -overdue_border,
+        (border_x) + overlapping_factor * (border_sizes_mm["right"]) + overdue_border,
+        page_height + 2 * overdue_border,
         fill=1,
         stroke=0,
     )
     # bottom
-    c.rect(
-        0,
-        0,
-        page_width,
-        (border_y) + overlapping_factor * mm_to_points(border_sizes_mm["bottom"]),
+    print("bottom")
+    rect(
+        -overdue_border,
+        -overdue_border,
+        page_width + 2 * overdue_border,
+        (border_y) + overlapping_factor * (border_sizes_mm["bottom"]) + overdue_border,
         fill=1,
         stroke=0,
     )
@@ -653,7 +660,7 @@ def scale_page_with_padding(
     target_width,
     target_height,
     border_color,
-    borders_sizes_mm=None,
+    borders_sizes_mm={"top": 0, "bottom": 0, "left": 0, "right": 0},
     overlapping_factor=0,
 ):
     smallest_scaling = get_scaling_to_fit(
@@ -1013,7 +1020,7 @@ def test_scaling():
     # crop_and_scale_page(pdf_path, target_width=80, target_height=80, border_color=
     # convert to a6+
 
-    if False:
+    if True:
         process_pdf(
             input_path=pdf_path,
             output_path="test_output_scaling.pdf",
