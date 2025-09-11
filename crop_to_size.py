@@ -15,6 +15,8 @@ from reportlab.lib.units import mm
 import tempfile
 import io
 
+from reportlab.lib.utils import ImageReader
+
 
 def mm_to_points(mm):
     """Convert millimeters to points (PDF units)"""
@@ -196,6 +198,25 @@ def detect_border(np_image, tolerance=10, skip=1):
             )
     else:
         border_color = None
+
+
+def convert_page_to_image(page, dpi=150):
+    # generate a random path for a temp file
+    temp_pdf_buffer = io.BytesIO()
+    temp_writer = PdfWriter()
+    temp_writer.add_page(page)
+    temp_writer.write(temp_pdf_buffer)
+    temp_pdf_buffer.seek(0)
+
+    # Write buffer to temporary file for fitz (PyMuPDF) compatibility # TODO requires fix later...
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as temp_file:
+        temp_file.write(temp_pdf_buffer.getvalue())
+        temp_pdf_path = temp_file.name
+
+    results = convert_pdf_page_to_image(temp_pdf_path, dpi=dpi)
+
+    os.remove(temp_pdf_path)
+    return results
 
 
 def convert_pdf_page_to_image(pdf_path, page_number=0, dpi=150):
@@ -703,6 +724,406 @@ def rgb_to_hex(rgb):
     return "{:02x}{:02x}{:02x}".format(rgb[0], rgb[1], rgb[2])
 
 
+def create_smart_borders_scaled(
+    page, target_width_mm, target_height_mm, smart_border_mode="scaled"
+):
+    """Create smart borders by scaling the page and filling padding with edge colors
+
+    Args:
+        page: PDF page object to process
+        target_width_mm: Target width in millimeters
+        target_height_mm: Target height in millimeters
+
+    Returns:
+        page: Modified page with smart borders
+    """
+    import numpy as np
+    from PIL import Image
+    from io import BytesIO
+
+    # Convert target dimensions to points
+    target_width_points = mm_to_points(target_width_mm)
+    target_height_points = mm_to_points(target_height_mm)
+
+    # Get current page dimensions in points
+    start_width_points, start_height_points = get_page_dimensions(page)
+
+    if smart_border_mode == "scaled":
+        # Calculate scaling factor to fit within target size
+        smallest_scaling = get_scaling_to_fit(
+            target_width_mm,
+            target_height_mm,
+            points_to_mm(start_width_points),
+            points_to_mm(start_height_points),
+        )
+
+        # Scale the page
+        page.scale(smallest_scaling, smallest_scaling)
+
+    # Get image array for edge color extraction
+    img_array, page_width_mm, page_height_mm, pixels_per_mm = convert_page_to_image(
+        page, dpi=300
+    )
+
+    # Add padding around center to match target size
+    page, (border_x, border_y) = expand_page_centric(
+        page, target_width_points, target_height_points
+    )
+
+    print(
+        f"Border sizes: {points_to_mm(border_x):.1f}mm left/right, {points_to_mm(border_y):.1f}mm top/bottom"
+    )
+
+    # If no borders are needed, return the page as-is
+    if not border_x > 0 and not border_y > 0:
+        print("No borders needed - page is already at target size")
+        return page
+
+    # Extract edge colors from all four sides
+    edge_width = 1  # Number of pixels to sample from each edge
+
+    # Extract edge strips
+    left_edge = img_array[:, :edge_width, :]  # Left edge
+    right_edge = img_array[:, -edge_width:, :]  # Right edge
+    top_edge = img_array[:edge_width, :, :]  # Top edge
+    bottom_edge = img_array[-edge_width:, :, :]  # Bottom edge
+
+    # Create smart border overlays for each side
+    current_width, current_height = get_page_dimensions(page)
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=(current_width, current_height))
+
+    # Helper function to create stretched border image
+    def create_border_image(edge_array, target_width, target_height, direction):
+        """Create a border image by stretching edge colors"""
+        edge_array = edge_array.astype(np.uint8)
+
+        if direction in ["left", "right"]:
+            # For vertical borders, tile the edge horizontally
+            border_image = np.tile(
+                edge_array,
+                (1, max(1, target_width // edge_array.shape[1]) + 1, 1),
+            )
+            border_image = border_image[:, :target_width, :]
+            # Resize to match target height
+            pil_image = Image.fromarray(border_image)
+            pil_image = pil_image.resize(
+                (target_width, target_height), Image.Resampling.LANCZOS
+            )
+        else:  # top, bottom
+            # For horizontal borders, tile the edge vertically
+            border_image = np.tile(
+                edge_array,
+                (max(1, target_height // edge_array.shape[0]) + 1, 1, 1),
+            )
+            border_image = border_image[:target_height, :, :]
+            # Resize to match target width
+            pil_image = Image.fromarray(border_image)
+            pil_image = pil_image.resize(
+                (target_width, target_height), Image.Resampling.LANCZOS
+            )
+
+        print("Created border image for", direction, pil_image.size)
+        return pil_image
+
+    def create_border_image(edge_array, target_width, target_height, direction):
+        """Create a border image by stretching edge colors"""
+        edge_array = edge_array.astype(np.uint8)
+
+        pil_image = Image.fromarray(edge_array)
+
+        print("Created border image for", direction, pil_image.size)
+        return pil_image
+
+    # Create border images for each side
+    if border_x > 0:  # Only create horizontal borders if needed
+        # Left border
+        left_border_img = create_border_image(
+            left_edge, int(border_x), int(current_height), "left"
+        )
+        left_stream = BytesIO()
+        left_border_img.save(left_stream, format="PNG")
+        left_stream.seek(0)
+        left_reader = ImageReader(left_stream)
+        if smart_border_mode == "scaled":
+            can.drawImage(left_reader, 0, 0, border_x, current_height)
+        else:
+            can.drawImage(left_reader, 0, border_y, border_x, start_height_points)
+
+        # Right border
+        right_border_img = create_border_image(
+            right_edge, int(border_x), int(current_height), "right"
+        )
+        right_stream = BytesIO()
+        right_border_img.save(right_stream, format="PNG")
+        right_stream.seek(0)
+        right_reader = ImageReader(right_stream)
+        if smart_border_mode == "scaled":
+            can.drawImage(
+                right_reader, current_width - border_x, 0, border_x, current_height
+            )
+        else:
+            can.drawImage(
+                right_reader,
+                current_width - border_x,
+                border_y,
+                border_x,
+                start_height_points,
+            )
+
+    else:
+        print("Skipping left/right borders - not needed")
+
+    if border_y > 0:  # Only create vertical borders if needed
+        # Top border
+        top_border_img = create_border_image(
+            top_edge, int(current_width), int(border_y), "top"
+        )
+        top_stream = BytesIO()
+        top_border_img.save(top_stream, format="PNG")
+        top_stream.seek(0)
+        top_reader = ImageReader(top_stream)
+        if smart_border_mode == "scaled":
+            can.drawImage(
+                top_reader, 0, current_height - border_y, current_width, border_y
+            )
+        else:
+            can.drawImage(
+                top_reader,
+                border_x,
+                current_height - border_y,
+                start_width_points,
+                border_y,
+            )
+
+        # Bottom border
+        bottom_border_img = create_border_image(
+            bottom_edge, int(current_width), int(border_y), "bottom"
+        )
+        bottom_stream = BytesIO()
+        bottom_border_img.save(bottom_stream, format="PNG")
+        bottom_stream.seek(0)
+        bottom_reader = ImageReader(bottom_stream)
+        if smart_border_mode == "scaled":
+            can.drawImage(bottom_reader, 0, 0, current_width, border_y)
+        else:
+            can.drawImage(
+                bottom_reader,
+                border_x,
+                0,
+                start_width_points,
+                border_y,
+            )
+
+    else:
+        print("Skipping top/bottom borders - not needed")
+
+    can.save()
+
+    # Check if the canvas has any content before trying to read it
+    packet.seek(0)
+    try:
+        border_reader = PdfReader(packet)
+        if len(border_reader.pages) == 0:
+            print("No border content created - returning original page")
+            return page
+        border_page = border_reader.pages[0]
+        page.merge_page(border_page)
+    except (IndexError, Exception) as e:
+        print(f"Warning: Could not create border overlay: {e}")
+        print("Returning page without smart borders")
+        return page
+
+    print(f"Created smart borders using edge colors from original image")
+    return page
+
+
+def create_smart_borders_unscaled(page, target_width_mm, target_height_mm):
+    """Create smart borders without scaling the page, leaving corners empty
+
+    Args:
+        page: PDF page object to process
+        target_width_mm: Target width in millimeters
+        target_height_mm: Target height in millimeters
+
+    Returns:
+        page: Modified page with smart borders (corners may be empty)
+    """
+    import numpy as np
+    from PIL import Image
+    from io import BytesIO
+
+    # Convert target dimensions to points
+    target_width_points = mm_to_points(target_width_mm)
+    target_height_points = mm_to_points(target_height_mm)
+
+    # Get current page dimensions in points
+    current_width_points, current_height_points = get_page_dimensions(page)
+
+    # Get image array for edge color extraction (before any modifications)
+    img_array, page_width_mm, page_height_mm, pixels_per_mm = convert_page_to_image(
+        page, dpi=300
+    )
+
+    # Add padding around center to match target size (without scaling)
+    page, (border_x, border_y) = expand_page_centric(
+        page, target_width_points, target_height_points
+    )
+
+    # If no borders are needed, return the page as-is
+    if border_x <= 1 and border_y <= 1:
+        print("No borders needed - page is already at target size")
+        return page
+
+    # Extract edge colors from all four sides
+    edge_width = 3  # Number of pixels to sample from each edge
+
+    # Extract edge strips
+    left_edge = img_array[:, :edge_width, :]  # Left edge
+    right_edge = img_array[:, -edge_width:, :]  # Right edge
+    top_edge = img_array[:edge_width, :, :]  # Top edge
+    bottom_edge = img_array[-edge_width:, :, :]  # Bottom edge
+
+    # Create smart border overlays for each side
+    current_width, current_height = get_page_dimensions(page)
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=(current_width, current_height))
+
+    # Helper function to create repeated border image (not stretched)
+    def create_border_strip(edge_array, target_width, target_height, direction):
+        """Create a border strip by repeating edge colors at natural size"""
+        edge_array = edge_array.astype(np.uint8)
+
+        if direction in ["left", "right"]:
+            # For vertical borders, repeat the edge pattern vertically
+            edge_height = edge_array.shape[0]
+            edge_width = edge_array.shape[1]
+
+            # Calculate how many times we need to repeat the pattern
+            repeats_needed = (target_height // edge_height) + 1
+
+            # Tile the pattern vertically
+            border_image = np.tile(edge_array, (repeats_needed, 1, 1))
+
+            # Crop to exact target height
+            border_image = border_image[:target_height, :, :]
+
+            # If we need a wider border, tile horizontally too
+            if target_width > edge_width:
+                h_repeats = (target_width // edge_width) + 1
+                border_image = np.tile(border_image, (1, h_repeats, 1))
+                border_image = border_image[:, :target_width, :]
+
+            pil_image = Image.fromarray(border_image)
+
+        else:  # top, bottom
+            # For horizontal borders, repeat the edge pattern horizontally
+            edge_height = edge_array.shape[0]
+            edge_width = edge_array.shape[1]
+
+            # Calculate how many times we need to repeat the pattern
+            repeats_needed = (target_width // edge_width) + 1
+
+            # Tile the pattern horizontally
+            border_image = np.tile(edge_array, (1, repeats_needed, 1))
+
+            # Crop to exact target width
+            border_image = border_image[:, :target_width, :]
+
+            # If we need a taller border, tile vertically too
+            if target_height > edge_height:
+                v_repeats = (target_height // edge_height) + 1
+                border_image = np.tile(border_image, (v_repeats, 1, 1))
+                border_image = border_image[:target_height, :, :]
+
+            pil_image = Image.fromarray(border_image)
+
+        print(f"Created natural border strip for {direction}, size: {pil_image.size}")
+        return pil_image
+
+    # Calculate the original content area position
+    content_y_offset = border_y  # Original content starts at this Y position
+    content_height = current_height_points  # Original content height
+
+    # Create border strips for each side (only along original content dimensions)
+    if border_x > 1:  # Only create horizontal borders if needed
+        # Left border (only along original content height)
+        left_border_img = create_border_strip(
+            left_edge, int(border_x), int(content_height), "left"
+        )
+        left_stream = BytesIO()
+        left_border_img.save(left_stream, format="PNG")
+        left_stream.seek(0)
+        left_reader = ImageReader(left_stream)
+        can.drawImage(left_reader, 0, border_y, border_x, current_height_points)
+
+        # Right border (only along original content height)
+        right_border_img = create_border_strip(
+            right_edge, int(border_x), int(content_height), "right"
+        )
+        right_stream = BytesIO()
+        right_border_img.save(right_stream, format="PNG")
+        right_stream.seek(0)
+        right_reader = ImageReader(right_stream)
+        can.drawImage(
+            right_reader,
+            current_width - border_x,
+            content_y_offset,
+            border_x,
+            content_height,
+        )
+
+    if border_y > 1:  # Only create vertical borders if needed
+        # Calculate the original content area position
+        content_x_offset = border_x  # Original content starts at this X position
+        content_width = current_width_points  # Original content width
+
+        # Top border (only along original content width)
+        top_border_img = create_border_strip(
+            top_edge, int(content_width), int(border_y), "top"
+        )
+        top_stream = BytesIO()
+        top_border_img.save(top_stream, format="PNG")
+        top_stream.seek(0)
+        top_reader = ImageReader(top_stream)
+        can.drawImage(
+            top_reader,
+            border_x,
+            current_height - border_y,
+            current_width_points,
+            border_y,
+        )
+
+        # Bottom border (only along original content width)
+        bottom_border_img = create_border_strip(
+            bottom_edge, int(content_width), int(border_y), "bottom"
+        )
+        bottom_stream = BytesIO()
+        bottom_border_img.save(bottom_stream, format="PNG")
+        bottom_stream.seek(0)
+        bottom_reader = ImageReader(bottom_stream)
+        can.drawImage(bottom_reader, content_x_offset, 0, content_width, border_y)
+
+    can.save()
+
+    # Check if the canvas has any content before trying to read it
+    packet.seek(0)
+    try:
+        border_reader = PdfReader(packet)
+        if len(border_reader.pages) == 0:
+            print("No border content created - returning original page")
+            return page
+        border_page = border_reader.pages[0]
+        page.merge_page(border_page)
+    except (IndexError, Exception) as e:
+        print(f"Warning: Could not create border overlay: {e}")
+        print("Returning page without smart borders")
+        return page
+
+    print(f"Created unscaled smart borders with empty corners")
+    return page
+
+
 def scale_page_with_padding(
     page,
     target_width_mm,
@@ -765,6 +1186,7 @@ def crop_and_scale_page(
     enable_rotation=False,
     crop_to_fill=None,
     border_color=(1, 1, 1),
+    smart_border_mode="scaled",  # "scaled" or "unscaled"
 ):
     """Crop and scale a PDF page to target dimensions using modular approach
 
@@ -882,7 +1304,12 @@ def crop_and_scale_page(
             return newPage
 
         else:
-            print("No significant border detected.")
+            print("No significant border detected. Creating smart borders.")
+
+            page = create_smart_borders_scaled(
+                page, target_width_mm, target_height_mm, smart_border_mode
+            )
+            return page
 
     # todo: scale page to fit A6 and add borders if needed. Also override the skip area with the boarder.
 
@@ -924,6 +1351,7 @@ def process_pdf(
     enable_rotation=False,
     crop_to_fill=None,
     border_color=(1, 1, 1),
+    smart_border_mode="scaled",  # "scaled" or "unscaled"
 ):
     """Process PDF file and crop/scale all pages
 
@@ -956,6 +1384,7 @@ def process_pdf(
                     enable_rotation,
                     crop_to_fill,
                     border_color,
+                    smart_border_mode,
                 )
                 # processed_page.rotate(90)
                 writer.add_page(processed_page)
@@ -968,6 +1397,9 @@ def process_pdf(
 
     except FileNotFoundError:
         print(f"Error: Input file '{input_path}' not found.")
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
     except Exception as e:
         print(f"Error processing PDF: {str(e)}")
@@ -1077,32 +1509,78 @@ def test_scaling():
 
     pdf_path = create_test_pdf(100, 100, border_width_mm=0.0, border_color=(0, 1, 0))
     print(pdf_path)
-    # result = detect_pdf_border(pdf_path, tolerance=20)
-    # crop_and_scale_page(pdf_path, target_width=80, target_height=80, border_color=
-    # convert to a6+
 
-    if True:
-        process_pdf(
-            input_path=pdf_path,
-            output_path="test_output_scaling.pdf",
-            target_width_mm=148 + 3,
-            target_height_mm=105 + 3,
-            crop_to_fill=True,
-            enable_rotation=True,
-            # border_color=(black),
-        )
-    else:
-        process_pdf(
-            input_path=pdf_path,
-            output_path="test_output_scaling.pdf",
-            target_width_mm=105 + 3,
-            target_height_mm=148 + 3,
-            crop_to_fill=False,
-            enable_rotation=False,
-            # border_color=(black),
-        )
+    # Test both smart border modes
+    print("\n=== Testing Scaled Smart Borders ===")
+    process_pdf(
+        input_path=pdf_path,
+        output_path="test_output_scaling_scaled.pdf",
+        target_width_mm=148 + 3,
+        target_height_mm=105 + 3,
+        crop_to_fill=False,
+        enable_rotation=True,
+        smart_border_mode="scaled",
+    )
+
+    print("\n=== Testing Unscaled Smart Borders (with empty corners) ===")
+    process_pdf(
+        input_path=pdf_path,
+        output_path="test_output_scaling_unscaled.pdf",
+        target_width_mm=148 + 3,
+        target_height_mm=105 + 3,
+        crop_to_fill=False,
+        enable_rotation=True,
+        smart_border_mode="unscaled",
+    )
+
+
+def test_smart_borders_comparison():
+    """Test function to compare both smart border modes"""
+    from millimeter_paper_generator import create_test_pdf
+
+    # Create a test PDF with some content
+    pdf_path = create_test_pdf(80, 60, border_width_mm=1.0, border_color=(255, 0, 0))
+    print(f"Created test PDF: {pdf_path}")
+
+    target_width = 120.5
+    target_height = 90
+
+    print(f"\nTesting smart borders: {80}x{60}mm -> {target_width}x{target_height}mm")
+
+    # Test scaled version (fills entire area)
+    print(
+        "\n1. Scaled smart borders (content scaled to fit, borders fill remaining space):"
+    )
+    process_pdf(
+        input_path=pdf_path,
+        output_path="test_smart_borders_scaled.pdf",
+        target_width_mm=target_width,
+        target_height_mm=target_height,
+        crop_to_fill=False,
+        smart_border_mode="scaled",
+    )
+
+    # Test unscaled version (original size, empty corners)
+    print("\n2. Unscaled smart borders (original content size, empty corners):")
+    process_pdf(
+        input_path=pdf_path,
+        output_path="test_smart_borders_unscaled.pdf",
+        target_width_mm=target_width,
+        target_height_mm=target_height,
+        crop_to_fill=False,
+        smart_border_mode="unscaled",
+    )
+
+    print("\nComparison complete! Check the output files:")
+    print(
+        "- test_smart_borders_scaled.pdf: Content is scaled, borders fill entire area"
+    )
+    print(
+        "- test_smart_borders_unscaled.pdf: Content keeps original size, corners are empty"
+    )
 
 
 if __name__ == "__main__":
-    test_scaling()
+    # test_scaling()
+    test_smart_borders_comparison()
     # main()
