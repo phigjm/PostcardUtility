@@ -1380,7 +1380,7 @@ def process_pdf_for_print(
     target_height_mm=105,
     target_width_mm_with_bleeding=148 + 3 * 2,
     target_height_mm_with_bleeding=105 + 3 * 2,
-    enable_rotation=False,
+    enable_rotation=True,
     crop_to_fill=None,
 ):
     """Process PDF file and crop/scale all pages
@@ -1406,6 +1406,21 @@ def process_pdf_for_print(
             # Process each page
             for i, page in enumerate(reader.pages):
                 print(f"\nProcessing page {i + 1}:")
+
+                current_width_mm, current_height_mm = get_page_dimensions_in_mm(page)
+
+                if enable_rotation and should_rotate(
+                    current_width_mm,
+                    current_height_mm,
+                    target_width_mm,
+                    target_height_mm,
+                ):
+                    print("rotatting page for better fit detected")
+                    target_height_mm, target_width_mm = (
+                        target_width_mm,
+                        target_height_mm,
+                    )
+                    page = page.rotate(90)  # TODO ask if nescessary
 
                 processed_page = create_smart_borders_scaled(
                     page=page,
