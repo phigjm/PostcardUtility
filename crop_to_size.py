@@ -725,7 +725,13 @@ def rgb_to_hex(rgb):
 
 
 def create_smart_borders_scaled(
-    page, target_width_mm, target_height_mm, smart_border_mode="scaled"
+    page,
+    target_width_mm,
+    target_height_mm,
+    smart_border_mode="scaled",
+    overdue_border=1,
+    overlapping_pixels=1,
+    dpi=300,
 ):
     """Create smart borders by scaling the page and filling padding with edge colors
 
@@ -733,6 +739,10 @@ def create_smart_borders_scaled(
         page: PDF page object to process
         target_width_mm: Target width in millimeters
         target_height_mm: Target height in millimeters
+        smart_border_mode: "scaled" or "unscaled" mode
+        overdue_border: Extension beyond page boundaries in points
+        overlapping_pixels: Number of pixels for overlapping border areas
+        dpi: DPI for PDF to image conversion (affects pixel-to-point conversion)
 
     Returns:
         page: Modified page with smart borders
@@ -740,6 +750,10 @@ def create_smart_borders_scaled(
     import numpy as np
     from PIL import Image
     from io import BytesIO
+
+    # Convert overlapping pixels to points based on DPI
+    pixels_per_point = dpi / 72.0
+    overlapping_points = overlapping_pixels / pixels_per_point
 
     # Convert target dimensions to points
     target_width_points = mm_to_points(target_width_mm)
@@ -762,7 +776,7 @@ def create_smart_borders_scaled(
 
     # Get image array for edge color extraction
     img_array, page_width_mm, page_height_mm, pixels_per_mm = convert_page_to_image(
-        page, dpi=300
+        page, dpi=dpi
     )
 
     # Add padding around center to match target size
@@ -782,11 +796,22 @@ def create_smart_borders_scaled(
     # Extract edge colors from all four sides
     edge_width = 1  # Number of pixels to sample from each edge
 
-    # Extract edge strips
-    left_edge = img_array[:, :edge_width, :]  # Left edge
-    right_edge = img_array[:, -edge_width:, :]  # Right edge
-    top_edge = img_array[:edge_width, :, :]  # Top edge
-    bottom_edge = img_array[-edge_width:, :, :]  # Bottom edge
+    # Calculate edge offset based on overlapping pixels
+    edge_offset = max(0, overlapping_pixels)  # Ensure offset is not negative
+
+    # Extract edge strips with offset
+    left_edge = img_array[
+        :, edge_offset : edge_offset + edge_width, :
+    ]  # Left edge with offset
+    right_edge = img_array[
+        :, -(edge_width + edge_offset) : -edge_offset if edge_offset > 0 else None, :
+    ]  # Right edge with offset
+    top_edge = img_array[
+        edge_offset : edge_offset + edge_width, :, :
+    ]  # Top edge with offset
+    bottom_edge = img_array[
+        -(edge_width + edge_offset) : -edge_offset if edge_offset > 0 else None, :, :
+    ]  # Bottom edge with offset
 
     # Create smart border overlays for each side
     current_width, current_height = get_page_dimensions(page)
@@ -837,6 +862,9 @@ def create_smart_borders_scaled(
 
     # Create border images for each side
     if border_x > 0:  # Only create horizontal borders if needed
+        # Use overlapping points (converted from pixels based on DPI)
+        overlap_extension_x = overlapping_points
+
         # Left border
         left_border_img = create_border_image(
             left_edge, int(border_x), int(current_height), "left"
@@ -846,9 +874,21 @@ def create_smart_borders_scaled(
         left_stream.seek(0)
         left_reader = ImageReader(left_stream)
         if smart_border_mode == "scaled":
-            can.drawImage(left_reader, 0, 0, border_x, current_height)
+            can.drawImage(
+                left_reader,
+                -overdue_border,
+                -overdue_border,
+                border_x + overlap_extension_x + overdue_border,
+                current_height + 2 * overdue_border,
+            )
         else:
-            can.drawImage(left_reader, 0, border_y, border_x, start_height_points)
+            can.drawImage(
+                left_reader,
+                -overdue_border,
+                border_y - overdue_border,
+                border_x + overlap_extension_x + overdue_border,
+                start_height_points + 2 * overdue_border,
+            )
 
         # Right border
         right_border_img = create_border_image(
@@ -860,21 +900,28 @@ def create_smart_borders_scaled(
         right_reader = ImageReader(right_stream)
         if smart_border_mode == "scaled":
             can.drawImage(
-                right_reader, current_width - border_x, 0, border_x, current_height
+                right_reader,
+                current_width - border_x - overlap_extension_x,
+                -overdue_border,
+                border_x + overlap_extension_x + overdue_border,
+                current_height + 2 * overdue_border,
             )
         else:
             can.drawImage(
                 right_reader,
-                current_width - border_x,
-                border_y,
-                border_x,
-                start_height_points,
+                current_width - border_x - overlap_extension_x,
+                border_y - overdue_border,
+                border_x + overlap_extension_x + overdue_border,
+                start_height_points + 2 * overdue_border,
             )
 
     else:
         print("Skipping left/right borders - not needed")
 
     if border_y > 0:  # Only create vertical borders if needed
+        # Use overlapping points (converted from pixels based on DPI)
+        overlap_extension_y = overlapping_points
+
         # Top border
         top_border_img = create_border_image(
             top_edge, int(current_width), int(border_y), "top"
@@ -885,15 +932,19 @@ def create_smart_borders_scaled(
         top_reader = ImageReader(top_stream)
         if smart_border_mode == "scaled":
             can.drawImage(
-                top_reader, 0, current_height - border_y, current_width, border_y
+                top_reader,
+                -overdue_border,
+                current_height - border_y - overlap_extension_y,
+                current_width + 2 * overdue_border,
+                border_y + overlap_extension_y + overdue_border,
             )
         else:
             can.drawImage(
                 top_reader,
-                border_x,
-                current_height - border_y,
-                start_width_points,
-                border_y,
+                border_x - overdue_border,
+                current_height - border_y - overlap_extension_y,
+                start_width_points + 2 * overdue_border,
+                border_y + overlap_extension_y + overdue_border,
             )
 
         # Bottom border
@@ -905,14 +956,20 @@ def create_smart_borders_scaled(
         bottom_stream.seek(0)
         bottom_reader = ImageReader(bottom_stream)
         if smart_border_mode == "scaled":
-            can.drawImage(bottom_reader, 0, 0, current_width, border_y)
+            can.drawImage(
+                bottom_reader,
+                -overdue_border,
+                -overdue_border,
+                current_width + 2 * overdue_border,
+                border_y + overlap_extension_y + overdue_border,
+            )
         else:
             can.drawImage(
                 bottom_reader,
-                border_x,
-                0,
-                start_width_points,
-                border_y,
+                border_x - overdue_border,
+                -overdue_border,
+                start_width_points + 2 * overdue_border,
+                border_y + overlap_extension_y + overdue_border,
             )
 
     else:
