@@ -265,7 +265,7 @@ def generate_postcard(
     addr_x = width / 2 + margin
     addr_y = margin + 40  # start above bottom margin
     c.setFont(font_name, 12)
-    for line in address.split("\n"):
+    for line in address.splitlines():
         c.drawString(addr_x, addr_y, line)
         addr_y += 14
 
