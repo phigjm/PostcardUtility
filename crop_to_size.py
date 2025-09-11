@@ -740,12 +740,12 @@ def create_smart_borders_scaled(
         target_width_mm: Target width in millimeters
         target_height_mm: Target height in millimeters
         smart_border_mode: "scaled" or "unscaled" mode
-        overdue_border: Extension beyond page boundaries in points
+        overdue_border: Extension beyond page boundaries in points (also used for corner extension)
         overlapping_pixels: Number of pixels for overlapping border areas
         dpi: DPI for PDF to image conversion (affects pixel-to-point conversion)
 
     Returns:
-        page: Modified page with smart borders
+        page: Modified page with smart borders and filled corners using averaged edge colors
     """
     import numpy as np
     from PIL import Image
@@ -975,6 +975,113 @@ def create_smart_borders_scaled(
     else:
         print("Skipping top/bottom borders - not needed")
 
+    # Fill corners with averaged colors from neighboring edges
+    if border_x > 0 and border_y > 0:
+        # Helper function to calculate corner colors from neighboring edges
+        def get_corner_color(edge1, edge2, position1, position2):
+            """Calculate average color between two edge pixels at specified positions"""
+            try:
+                # Get colors from the specified positions in each edge
+                color1 = edge1[position1[0], position1[1], :].astype(np.float32)
+                color2 = edge2[position2[0], position2[1], :].astype(np.float32)
+                # Return average color as uint8
+                return ((color1 + color2) / 2).astype(np.uint8)
+            except (IndexError, ValueError):
+                # Fallback to white if there's an issue
+                return np.array([255, 255, 255], dtype=np.uint8)
+
+        # Calculate corner colors from neighboring edges
+        corner_colors = {}
+
+        # Top-left corner: average of top edge leftmost pixel and left edge topmost pixel
+        corner_colors["top_left"] = get_corner_color(
+            top_edge,
+            left_edge,
+            (0, 0),  # leftmost pixel of top edge
+            (0, 0),  # topmost pixel of left edge
+        )
+
+        # Top-right corner: average of top edge rightmost pixel and right edge topmost pixel
+        corner_colors["top_right"] = get_corner_color(
+            top_edge,
+            right_edge,
+            (0, -1),  # rightmost pixel of top edge
+            (0, -1),  # topmost pixel of right edge
+        )
+
+        # Bottom-left corner: average of bottom edge leftmost pixel and left edge bottommost pixel
+        corner_colors["bottom_left"] = get_corner_color(
+            bottom_edge,
+            left_edge,
+            (-1, 0),  # leftmost pixel of bottom edge
+            (-1, 0),  # bottommost pixel of left edge
+        )
+
+        # Bottom-right corner: average of bottom edge rightmost pixel and right edge bottommost pixel
+        corner_colors["bottom_right"] = get_corner_color(
+            bottom_edge,
+            right_edge,
+            (-1, -1),  # rightmost pixel of bottom edge
+            (-1, -1),  # bottommost pixel of right edge
+        )
+
+        # Helper function to convert RGB to reportlab color
+        def rgb_to_reportlab_color(rgb_array):
+            return Color(
+                rgb_array[0] / 255.0, rgb_array[1] / 255.0, rgb_array[2] / 255.0
+            )
+
+        # Draw corner rectangles with overdue_border extension
+        corner_extension = overdue_border
+
+        # Top-left corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["top_left"]))
+        can.rect(
+            -corner_extension,
+            current_height - border_y - corner_extension,
+            border_x + corner_extension,
+            border_y + corner_extension,
+            fill=1,
+            stroke=0,
+        )
+
+        # Top-right corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["top_right"]))
+        can.rect(
+            current_width - border_x,
+            current_height - border_y - corner_extension,
+            border_x + corner_extension,
+            border_y + corner_extension,
+            fill=1,
+            stroke=0,
+        )
+
+        # Bottom-left corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["bottom_left"]))
+        can.rect(
+            -corner_extension,
+            -corner_extension,
+            border_x + corner_extension,
+            border_y + corner_extension,
+            fill=1,
+            stroke=0,
+        )
+
+        # Bottom-right corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["bottom_right"]))
+        can.rect(
+            current_width - border_x,
+            -corner_extension,
+            border_x + corner_extension,
+            border_y + corner_extension,
+            fill=1,
+            stroke=0,
+        )
+
+        print(
+            "Filled corners with averaged colors from neighboring edges (with overdue_border extension)"
+        )
+
     can.save()
 
     # Check if the canvas has any content before trying to read it
@@ -991,12 +1098,14 @@ def create_smart_borders_scaled(
         print("Returning page without smart borders")
         return page
 
-    print(f"Created smart borders using edge colors from original image")
+    print(
+        f"Created smart borders using edge colors from original image with filled corners"
+    )
     return page
 
 
 def create_smart_borders_unscaled(page, target_width_mm, target_height_mm):
-    """Create smart borders without scaling the page, leaving corners empty
+    """Create smart borders without scaling the page, filling corners with neighboring edge colors
 
     Args:
         page: PDF page object to process
@@ -1004,7 +1113,7 @@ def create_smart_borders_unscaled(page, target_width_mm, target_height_mm):
         target_height_mm: Target height in millimeters
 
     Returns:
-        page: Modified page with smart borders (corners may be empty)
+        page: Modified page with smart borders and filled corners using averaged edge colors
     """
     import numpy as np
     from PIL import Image
@@ -1102,6 +1211,64 @@ def create_smart_borders_unscaled(page, target_width_mm, target_height_mm):
     content_y_offset = border_y  # Original content starts at this Y position
     content_height = current_height_points  # Original content height
 
+    # Fill corners with averaged colors from neighboring edges
+    print(
+        "border_x, border_y",
+        border_x,
+        border_y,
+        "bigger than",
+        border_x > 0,
+        border_y > 0,
+    )
+
+    # Helper function to calculate corner colors from neighboring edges
+    def get_corner_color(edge1, edge2, position1, position2):
+        """Calculate average color between two edge pixels at specified positions"""
+        try:
+            # Get colors from the specified positions in each edge
+            color1 = edge1[position1[0], position1[1], :].astype(np.float32)
+            color2 = edge2[position2[0], position2[1], :].astype(np.float32)
+            # Return average color as uint8
+            return ((color1 + color2) / 2).astype(np.uint8)
+        except (IndexError, ValueError):
+            # Fallback to white if there's an issue
+            return np.array([255, 255, 255], dtype=np.uint8)
+
+    # Calculate corner colors from neighboring edges
+    corner_colors = {}
+    if border_x > 0 and border_y > 0:
+        # Top-left corner: average of top edge leftmost pixel and left edge topmost pixel
+        corner_colors["top_left"] = get_corner_color(
+            top_edge,
+            left_edge,
+            (0, 0),  # leftmost pixel of top edge
+            (0, 0),  # topmost pixel of left edge
+        )
+
+        # Top-right corner: average of top edge rightmost pixel and right edge topmost pixel
+        corner_colors["top_right"] = get_corner_color(
+            top_edge,
+            right_edge,
+            (0, -1),  # rightmost pixel of top edge
+            (0, -1),  # topmost pixel of right edge
+        )
+
+        # Bottom-left corner: average of bottom edge leftmost pixel and left edge bottommost pixel
+        corner_colors["bottom_left"] = get_corner_color(
+            bottom_edge,
+            left_edge,
+            (-1, 0),  # leftmost pixel of bottom edge
+            (-1, 0),  # bottommost pixel of left edge
+        )
+
+        # Bottom-right corner: average of bottom edge rightmost pixel and right edge bottommost pixel
+        corner_colors["bottom_right"] = get_corner_color(
+            bottom_edge,
+            right_edge,
+            (-1, -1),  # rightmost pixel of bottom edge
+            (-1, -1),  # bottommost pixel of right edge
+        )
+
     # Create border strips for each side (only along original content dimensions)
     if border_x > 1:  # Only create horizontal borders if needed
         # Left border (only along original content height)
@@ -1161,6 +1328,47 @@ def create_smart_borders_unscaled(page, target_width_mm, target_height_mm):
         bottom_reader = ImageReader(bottom_stream)
         can.drawImage(bottom_reader, content_x_offset, 0, content_width, border_y)
 
+    # Fill corners with averaged colors from neighboring edges
+    print(
+        "border_x, border_y",
+        border_x,
+        border_y,
+        "bigger than",
+        border_x > 0,
+        border_y > 0,
+    )
+    if border_x > 0 and border_y > 0:
+        # Helper function to convert RGB to reportlab color
+        def rgb_to_reportlab_color(rgb_array):
+            return Color(
+                rgb_array[0] / 255.0, rgb_array[1] / 255.0, rgb_array[2] / 255.0
+            )
+
+        # Top-left corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["top_left"]))
+        can.rect(0, current_height - border_y, border_x, border_y, fill=1, stroke=0)
+
+        # Top-right corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["top_right"]))
+        can.rect(
+            current_width - border_x,
+            current_height - border_y,
+            border_x,
+            border_y,
+            fill=1,
+            stroke=0,
+        )
+
+        # Bottom-left corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["bottom_left"]))
+        can.rect(0, 0, border_x, border_y, fill=1, stroke=0)
+
+        # Bottom-right corner
+        can.setFillColor(rgb_to_reportlab_color(corner_colors["bottom_right"]))
+        can.rect(current_width - border_x, 0, border_x, border_y, fill=1, stroke=0)
+
+        print("Filled corners with averaged colors from neighboring edges")
+
     can.save()
 
     # Check if the canvas has any content before trying to read it
@@ -1177,7 +1385,9 @@ def create_smart_borders_unscaled(page, target_width_mm, target_height_mm):
         print("Returning page without smart borders")
         return page
 
-    print(f"Created unscaled smart borders with empty corners")
+    print(
+        f"Created unscaled smart borders with corner colors averaged from neighboring edges"
+    )
     return page
 
 
