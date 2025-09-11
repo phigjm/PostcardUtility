@@ -2,6 +2,7 @@ from crop_to_size import process_pdf_for_print
 from draw_bleed_area import draw_cutting_area
 from set_crop_markers import add_crop_marks_to_pdf
 import postcardformats
+from convert_CMYK import convertPDFtoCMYK
 
 
 def process_postcard(input_pdf, printversion_pdf, preview_version_pdf):
@@ -18,6 +19,21 @@ def process_postcard(input_pdf, printversion_pdf, preview_version_pdf):
             1
         ],
     )
+
+    # todo convert cmyk
+    if True:  # dosnt work well yet
+        input_pdf = printversion_pdf
+        printversion_pdf = printversion_pdf.replace(".pdf", "_CMYK.pdf")
+        try:
+            convertPDFtoCMYK(input_pdf, printversion_pdf)
+            print(f"Converted {printversion_pdf} to CMYK")
+        except Exception as e:
+            print(f"Error converting to CMYK: {e}")
+            # stacktrace
+            import traceback
+
+            traceback.print_exc()
+
     draw_cutting_area(
         pdf_input=printversion_pdf,
         pdf_output=preview_version_pdf,
@@ -40,5 +56,5 @@ if __name__ == "__main__":
     preview_version_pdf = "Examples/postcard_with_cutting.pdf"
     process_postcard(input_pdf, printversion_pdf, preview_version_pdf)
     print(
-        f"Postcard processed and saved to {printversion_pdf} and {preview_version_pdf}"
+        f"Postcard {input_pdf} processed and saved to {printversion_pdf} and {preview_version_pdf}"
     )

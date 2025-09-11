@@ -308,6 +308,7 @@ if __name__ == "__main__":
         output_file="Examples/postcard.pdf",
         font_path="Helvetica",  # or provide a .ttf file
         show_debug_lines=False,  # Set to True to show boundary lines for debugging
+        border_thickness=0,
     )
 
     from postprocessor import process_postcard

@@ -59,10 +59,14 @@ def convertPDFtoCMYK(pdf_in, pdf_out=None):
     # print the command for debugging
     print("Running command:", " ".join(args))
 
-    subprocess.run(args, check=True)
+    val = subprocess.run(args, check=True)
+    print("val", val)
+    print(f"Converted {pdf_in} to CMYK and saved as {pdf_out}")
+
     return pdf_out
 
 
 if __name__ == "__main__":
     input_pdf = "Examples/postcard.pdf"
+    input_pdf = r"C:\Users\gjm\Projecte\PostCard\Examples\print_version.pdf"
     convertPDFtoCMYK(input_pdf)
