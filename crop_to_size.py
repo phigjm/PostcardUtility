@@ -947,10 +947,10 @@ def create_smart_borders_scaled(
 
     else:
         print("Skipping top/bottom borders - not needed")
-
+    # TODO white peaks in corners vermeiden
     # Fill corners with averaged colors from neighboring edges
     if border_x > minimal_resolution and border_y > minimal_resolution:
-        # Helper function to calculate corner colors from neighboring edges
+        # Helper function to calculate corner colors from neighboring edges using overlapping_pixels offset
         def get_corner_color(edge1, edge2, position1, position2):
             """Calculate average color between two edge pixels at specified positions"""
             try:
@@ -966,36 +966,43 @@ def create_smart_borders_scaled(
         # Calculate corner colors from neighboring edges
         corner_colors = {}
 
-        # Top-left corner: average of top edge leftmost pixel and left edge topmost pixel
+        # Use overlapping_pixels offset to avoid white peaks at the very edge
+        # This ensures we sample from pixels that are offset from the border edge
+        offset = max(0, overlapping_pixels)
+
+        # Top-left corner: average of top edge leftmost pixel and left edge topmost pixel (with offset)
         corner_colors["top_left"] = get_corner_color(
             top_edge,
             left_edge,
-            (0, 0),  # leftmost pixel of top edge
-            (0, 0),  # topmost pixel of left edge
+            (0, offset),  # leftmost pixel of top edge with horizontal offset
+            (offset, 0),  # topmost pixel of left edge with vertical offset
         )
 
-        # Top-right corner: average of top edge rightmost pixel and right edge topmost pixel
+        # Top-right corner: average of top edge rightmost pixel and right edge topmost pixel (with offset)
         corner_colors["top_right"] = get_corner_color(
             top_edge,
             right_edge,
-            (0, -1),  # rightmost pixel of top edge
-            (0, -1),  # topmost pixel of right edge
+            (0, -(offset + 1)),  # rightmost pixel of top edge with horizontal offset
+            (offset, -1),  # topmost pixel of right edge with vertical offset
         )
 
-        # Bottom-left corner: average of bottom edge leftmost pixel and left edge bottommost pixel
+        # Bottom-left corner: average of bottom edge leftmost pixel and left edge bottommost pixel (with offset)
         corner_colors["bottom_left"] = get_corner_color(
             bottom_edge,
             left_edge,
-            (-1, 0),  # leftmost pixel of bottom edge
-            (-1, 0),  # bottommost pixel of left edge
+            (-1, offset),  # leftmost pixel of bottom edge with horizontal offset
+            (-(offset + 1), 0),  # bottommost pixel of left edge with vertical offset
         )
 
-        # Bottom-right corner: average of bottom edge rightmost pixel and right edge bottommost pixel
+        # Bottom-right corner: average of bottom edge rightmost pixel and right edge bottommost pixel (with offset)
         corner_colors["bottom_right"] = get_corner_color(
             bottom_edge,
             right_edge,
-            (-1, -1),  # rightmost pixel of bottom edge
-            (-1, -1),  # bottommost pixel of right edge
+            (
+                -1,
+                -(offset + 1),
+            ),  # rightmost pixel of bottom edge with horizontal offset
+            (-(offset + 1), -1),  # bottommost pixel of right edge with vertical offset
         )
 
         # Helper function to convert RGB to reportlab color
@@ -1006,25 +1013,28 @@ def create_smart_borders_scaled(
 
         # Draw corner rectangles with overdue_border extension
         corner_extension = overdue_border
+        # Convert overlapping pixels to points for rectangle positioning
+        offset_points = overlapping_points
 
         # Top-left corner
         can.setFillColor(rgb_to_reportlab_color(corner_colors["top_left"]))
         can.rect(
             -corner_extension,
-            current_height - border_y - corner_extension,
-            border_x + corner_extension,
-            border_y + corner_extension,
+            current_height - border_y - corner_extension - offset_points,
+            border_x + corner_extension + offset_points,
+            border_y + corner_extension + offset_points,
             fill=1,
             stroke=0,
         )
 
         # Top-right corner
         can.setFillColor(rgb_to_reportlab_color(corner_colors["top_right"]))
+
         can.rect(
-            current_width - border_x,
-            current_height - border_y - corner_extension,
-            border_x + corner_extension,
-            border_y + corner_extension,
+            current_width - border_x - offset_points,
+            current_height - border_y - corner_extension - offset_points,
+            border_x + corner_extension + offset_points,
+            border_y + corner_extension + offset_points,
             fill=1,
             stroke=0,
         )
@@ -1034,8 +1044,8 @@ def create_smart_borders_scaled(
         can.rect(
             -corner_extension,
             -corner_extension,
-            border_x + corner_extension,
-            border_y + corner_extension,
+            border_x + corner_extension + offset_points,
+            border_y + corner_extension + offset_points,
             fill=1,
             stroke=0,
         )
@@ -1043,10 +1053,10 @@ def create_smart_borders_scaled(
         # Bottom-right corner
         can.setFillColor(rgb_to_reportlab_color(corner_colors["bottom_right"]))
         can.rect(
-            current_width - border_x,
+            current_width - border_x - offset_points,
             -corner_extension,
-            border_x + corner_extension,
-            border_y + corner_extension,
+            border_x + corner_extension + offset_points,
+            border_y + corner_extension + offset_points,
             fill=1,
             stroke=0,
         )
@@ -1584,7 +1594,7 @@ def test_smart_borders_comparison():
         target_height_mm_with_bleeding=target_height + 3 * 2,
         target_width_mm_with_bleeding=target_width + 3 * 2,
         crop_to_fill=False,
-        smart_border_mode="scaled",
+        # smart_border_mode="scaled",
     )
 
     # Test unscaled version (original size, empty corners)
@@ -1597,7 +1607,7 @@ def test_smart_borders_comparison():
         target_height_mm_with_bleeding=target_height + 3 * 2,
         target_width_mm_with_bleeding=target_width + 3 * 2,
         crop_to_fill=False,
-        smart_border_mode="unscaled",
+        # smart_border_mode="unscaled",
     )
 
     print("\nComparison complete! Check the output files:")
