@@ -307,5 +307,13 @@ if __name__ == "__main__":
         address="John Doe\n123 Main Street\n12345 Hometown\nCountry",
         output_file="Examples/postcard.pdf",
         font_path="Helvetica",  # or provide a .ttf file
-        show_debug_lines=True,  # Set to True to show boundary lines for debugging
+        show_debug_lines=False,  # Set to True to show boundary lines for debugging
+    )
+
+    from postprocessor import process_postcard
+
+    process_postcard(
+        "Examples/postcard.pdf",
+        "Examples/print_version.pdf",
+        "Examples/preview_version.jpg",
     )

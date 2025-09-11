@@ -1,7 +1,6 @@
 import argparse
 
 from pypdf import PdfReader, PdfWriter
-from pypdf.annotations import Rectangle
 import sys
 import os
 import fitz  # PyMuPDF
@@ -13,9 +12,11 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.colors import HexColor, Color
 from reportlab.lib.units import mm
 import tempfile
-import io
+
+from io import BytesIO
 
 from reportlab.lib.utils import ImageReader
+from PIL import Image
 
 
 def mm_to_points(mm):
@@ -202,7 +203,7 @@ def detect_border(np_image, tolerance=10, skip=1):
 
 def convert_page_to_image(page, dpi=150):
     # generate a random path for a temp file
-    temp_pdf_buffer = io.BytesIO()
+    temp_pdf_buffer = BytesIO()
     temp_writer = PdfWriter()
     temp_writer.add_page(page)
     temp_writer.write(temp_pdf_buffer)
@@ -730,7 +731,7 @@ def create_smart_borders_scaled(
     target_height_mm,
     smart_border_mode="scaled",
     overdue_border=1,
-    overlapping_pixels=1,
+    overlapping_pixels=2,
     dpi=300,
 ):
     """Create smart borders by scaling the page and filling padding with edge colors
@@ -747,11 +748,12 @@ def create_smart_borders_scaled(
     Returns:
         page: Modified page with smart borders and filled corners using averaged edge colors
     """
-    import numpy as np
-    from PIL import Image
-    from io import BytesIO
 
-    minimal_resolution = point_per_pixel = 72.0 / dpi
+    minimal_resolution = point_per_pixel = (
+        72.0 / dpi
+    )  # TODO im unscaled bereich ist die border leicht shiftet...
+
+    print("overlapping_pixels", overlapping_pixels, dpi, point_per_pixel)
 
     # Convert overlapping pixels to points based on DPI
     pixels_per_point = dpi / 72.0
@@ -817,41 +819,8 @@ def create_smart_borders_scaled(
 
     # Create smart border overlays for each side
     current_width, current_height = get_page_dimensions(page)
-    packet = io.BytesIO()
+    packet = BytesIO()
     can = canvas.Canvas(packet, pagesize=(current_width, current_height))
-
-    # Helper function to create stretched border image
-    def create_border_image(edge_array, target_width, target_height, direction):
-        """Create a border image by stretching edge colors"""
-        edge_array = edge_array.astype(np.uint8)
-
-        if direction in ["left", "right"]:
-            # For vertical borders, tile the edge horizontally
-            border_image = np.tile(
-                edge_array,
-                (1, max(1, target_width // edge_array.shape[1]) + 1, 1),
-            )
-            border_image = border_image[:, :target_width, :]
-            # Resize to match target height
-            pil_image = Image.fromarray(border_image)
-            pil_image = pil_image.resize(
-                (target_width, target_height), Image.Resampling.LANCZOS
-            )
-        else:  # top, bottom
-            # For horizontal borders, tile the edge vertically
-            border_image = np.tile(
-                edge_array,
-                (max(1, target_height // edge_array.shape[0]) + 1, 1, 1),
-            )
-            border_image = border_image[:target_height, :, :]
-            # Resize to match target width
-            pil_image = Image.fromarray(border_image)
-            pil_image = pil_image.resize(
-                (target_width, target_height), Image.Resampling.LANCZOS
-            )
-
-        print("Created border image for", direction, pil_image.size)
-        return pil_image
 
     def create_border_image(edge_array, target_width, target_height, direction):
         """Create a border image by stretching edge colors"""
@@ -1139,7 +1108,7 @@ def scale_page_with_padding(
     )
     current_width, current_height = get_page_dimensions(page)
 
-    packet = io.BytesIO()
+    packet = BytesIO()
 
     page_width, page_height = get_page_dimensions(page)
     # Use ReportLab instead of pypdf annotations
@@ -1208,7 +1177,7 @@ def crop_and_scale_page(
     # safe page to file
 
     # generate a random path for a temp file
-    temp_pdf_buffer = io.BytesIO()
+    temp_pdf_buffer = BytesIO()
     temp_writer = PdfWriter()
     temp_writer.add_page(page)
     temp_writer.write(temp_pdf_buffer)
@@ -1394,6 +1363,76 @@ def process_pdf(
         sys.exit(1)
 
 
+def process_pdf_for_print(
+    input_path,
+    output_path,
+    target_width_mm=148,
+    target_height_mm=105,
+    target_width_mm_with_bleeding=148 + 3 * 2,
+    target_height_mm_with_bleeding=105 + 3 * 2,
+    enable_rotation=False,
+    crop_to_fill=None,
+):
+    """Process PDF file and crop/scale all pages
+
+    Args:
+        input_path: Path to input PDF file
+        output_path: Path to output PDF file
+        target_width_mm: Target width in millimeters
+        target_height_mm: Target height in millimeters
+        enable_rotation: Whether to enable automatic rotation for better fit
+        crop_to_fill: TODO If True (default), crop content to fill area. If False, add borders.
+        border_color: RGB color tuple for border when crop_to_fill=False (default: white)
+    """
+    try:
+        # Read the input PDF
+        with open(input_path, "rb") as input_file:
+            reader = PdfReader(input_file)
+            writer = PdfWriter()
+
+            print(f"Processing {len(reader.pages)} page(s)...")
+            # print(f"Mode: {'Crop-to-fill' if crop_to_fill else 'Fit-with-borders'}")
+
+            # Process each page
+            for i, page in enumerate(reader.pages):
+                print(f"\nProcessing page {i + 1}:")
+
+                processed_page = create_smart_borders_scaled(
+                    page=page,
+                    target_width_mm=target_width_mm,
+                    target_height_mm=target_height_mm,
+                    smart_border_mode="scaled",
+                )
+                processed_page = create_smart_borders_scaled(
+                    page=processed_page,
+                    target_width_mm=target_width_mm_with_bleeding,
+                    target_height_mm=target_height_mm_with_bleeding,
+                    smart_border_mode="unscaled",
+                )
+                # processed_page.rotate(90)
+                writer.add_page(processed_page)
+
+            # Write the output PDF
+            with open(output_path, "wb") as output_file:
+                writer.write(output_file)
+
+        print(f"\nSuccessfully processed PDF: {output_path}")
+
+    except FileNotFoundError:
+        print(f"Error: Input file '{input_path}' not found.")
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error processing PDF: {str(e)}")
+        # print stacktrace
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def main():
     # If no arguments provided, run with hardcoded values for testing
     if len(sys.argv) == 1:
@@ -1410,11 +1449,13 @@ def main():
             print(f"Page size: {analysis['border_info']['page_size_mm']}")
 
         print("\n=== Processing PDF ===")
-        process_pdf(
+        process_pdf_for_print(
             test_pdf,
             r"Examples/postcard_cropped2.pdf",
             148,
             105,
+            148 + 3 * 2,
+            105 + 3 * 2,
             False,
             False,  # crop_to_fill=True (default behavior)
         )
@@ -1535,22 +1576,26 @@ def test_smart_borders_comparison():
     print(
         "\n1. Scaled smart borders (content scaled to fit, borders fill remaining space):"
     )
-    process_pdf(
+    process_pdf_for_print(
         input_path=pdf_path,
         output_path="test_smart_borders_scaled.pdf",
         target_width_mm=target_width,
         target_height_mm=target_height,
+        target_height_mm_with_bleeding=target_height + 3 * 2,
+        target_width_mm_with_bleeding=target_width + 3 * 2,
         crop_to_fill=False,
         smart_border_mode="scaled",
     )
 
     # Test unscaled version (original size, empty corners)
     print("\n2. Unscaled smart borders (original content size, empty corners):")
-    process_pdf(
+    process_pdf_for_print(
         input_path=pdf_path,
         output_path="test_smart_borders_unscaled.pdf",
         target_width_mm=target_width,
         target_height_mm=target_height,
+        target_height_mm_with_bleeding=target_height + 3 * 2,
+        target_width_mm_with_bleeding=target_width + 3 * 2,
         crop_to_fill=False,
         smart_border_mode="unscaled",
     )

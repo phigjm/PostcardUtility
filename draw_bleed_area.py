@@ -55,13 +55,16 @@ def draw_bleed_area(pdf_input, pdf_output, bleed_mm=3):
         writer.write(output_file)
 
 
-def draw_cutting_area(pdf_input, pdf_output, cut_edge_mm=3, tolerances_mm=3):
+def draw_cutting_area(
+    pdf_input, pdf_output, cut_edge_x_mm=3, cut_edge_y_mm=3, tolerances_mm=3
+):
     """adds a dashed line to indicate the cutting area and a transparent gray border of bleed_mm centered on the cutting line to ontop of the existing pdf."""
 
     reader = PdfReader(pdf_input)
     writer = PdfWriter()
 
-    cut_edge_pts = cut_edge_mm * mm
+    cut_edge_x_pts = cut_edge_x_mm * mm
+    cut_edge_y_pts = cut_edge_y_mm * mm
     tolerances_pts = tolerances_mm / 2 * mm
     border_width_pts = 2 * tolerances_pts
 
@@ -75,18 +78,18 @@ def draw_cutting_area(pdf_input, pdf_output, cut_edge_mm=3, tolerances_mm=3):
         # Draw transparent gray borders centered at the cut edge - top/bottom
         can.setFillColorRGB(0.5, 0.5, 0.5, alpha=0.3)
         # Top border centered on cut edge
-        y_top = page_height - cut_edge_pts - tolerances_pts
+        y_top = page_height - cut_edge_y_pts - tolerances_pts
         can.rect(0, y_top, page_width, border_width_pts, fill=1, stroke=0)
 
         # Bottom border centered on cut edge
-        y_bottom = cut_edge_pts - tolerances_pts
+        y_bottom = cut_edge_y_pts - tolerances_pts
         can.rect(0, y_bottom, page_width, border_width_pts, fill=1, stroke=0)
 
         # Left and right borders centered on cut edge
-        x_left = cut_edge_pts - tolerances_pts
+        x_left = cut_edge_x_pts - tolerances_pts
         can.rect(x_left, 0, border_width_pts, page_height, fill=1, stroke=0)
 
-        x_right = page_width - cut_edge_pts - tolerances_pts
+        x_right = page_width - cut_edge_x_pts - tolerances_pts
         can.rect(x_right, 0, border_width_pts, page_height, fill=1, stroke=0)
 
         # Draw dashed cutting lines on the cut edges
@@ -95,12 +98,16 @@ def draw_cutting_area(pdf_input, pdf_output, cut_edge_mm=3, tolerances_mm=3):
         can.setDash(3, 3)  # 3 points dash, 3 points gap
 
         # Horizontal dashed lines (top and bottom cut edge)
-        can.line(0, page_height - cut_edge_pts, page_width, page_height - cut_edge_pts)
-        can.line(0, cut_edge_pts, page_width, cut_edge_pts)
+        can.line(
+            0, page_height - cut_edge_y_pts, page_width, page_height - cut_edge_y_pts
+        )
+        can.line(0, cut_edge_y_pts, page_width, cut_edge_y_pts)
 
         # Vertical dashed lines (left and right cut edge)
-        can.line(cut_edge_pts, 0, cut_edge_pts, page_height)
-        can.line(page_width - cut_edge_pts, 0, page_width - cut_edge_pts, page_height)
+        can.line(cut_edge_x_pts, 0, cut_edge_x_pts, page_height)
+        can.line(
+            page_width - cut_edge_x_pts, 0, page_width - cut_edge_x_pts, page_height
+        )
 
         can.save()
 
