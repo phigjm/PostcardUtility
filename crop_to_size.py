@@ -751,6 +751,8 @@ def create_smart_borders_scaled(
     from PIL import Image
     from io import BytesIO
 
+    minimal_resolution = point_per_pixel = 72.0 / dpi
+
     # Convert overlapping pixels to points based on DPI
     pixels_per_point = dpi / 72.0
     overlapping_points = overlapping_pixels / pixels_per_point
@@ -789,7 +791,7 @@ def create_smart_borders_scaled(
     )
 
     # If no borders are needed, return the page as-is
-    if not border_x > 0 and not border_y > 0:
+    if not border_x > minimal_resolution and not border_y > minimal_resolution:
         print("No borders needed - page is already at target size")
         return page
 
@@ -860,8 +862,9 @@ def create_smart_borders_scaled(
         print("Created border image for", direction, pil_image.size)
         return pil_image
 
+    print("point_per_pixel", point_per_pixel)
     # Create border images for each side
-    if border_x > 0:  # Only create horizontal borders if needed
+    if border_x > minimal_resolution:  # Only create horizontal borders if needed
         # Use overlapping points (converted from pixels based on DPI)
         overlap_extension_x = overlapping_points
 
@@ -876,18 +879,18 @@ def create_smart_borders_scaled(
         if smart_border_mode == "scaled":
             can.drawImage(
                 left_reader,
-                -overdue_border,
-                -overdue_border,
+                -overdue_border,  # Only extend left (outward)
+                0,  # No extension up/down
                 border_x + overlap_extension_x + overdue_border,
-                current_height + 2 * overdue_border,
+                current_height,  # No extension up/down
             )
         else:
             can.drawImage(
                 left_reader,
-                -overdue_border,
-                border_y - overdue_border,
+                -overdue_border,  # Only extend left (outward)
+                border_y,  # No extension up/down
                 border_x + overlap_extension_x + overdue_border,
-                start_height_points + 2 * overdue_border,
+                start_height_points,  # No extension up/down
             )
 
         # Right border
@@ -902,23 +905,23 @@ def create_smart_borders_scaled(
             can.drawImage(
                 right_reader,
                 current_width - border_x - overlap_extension_x,
-                -overdue_border,
+                0,  # No extension up/down
                 border_x + overlap_extension_x + overdue_border,
-                current_height + 2 * overdue_border,
+                current_height,  # No extension up/down
             )
         else:
             can.drawImage(
                 right_reader,
                 current_width - border_x - overlap_extension_x,
-                border_y - overdue_border,
+                border_y,  # No extension up/down
                 border_x + overlap_extension_x + overdue_border,
-                start_height_points + 2 * overdue_border,
+                start_height_points,  # No extension up/down
             )
 
     else:
         print("Skipping left/right borders - not needed")
 
-    if border_y > 0:  # Only create vertical borders if needed
+    if border_y > minimal_resolution:  # Only create vertical borders if needed
         # Use overlapping points (converted from pixels based on DPI)
         overlap_extension_y = overlapping_points
 
@@ -930,20 +933,21 @@ def create_smart_borders_scaled(
         top_border_img.save(top_stream, format="PNG")
         top_stream.seek(0)
         top_reader = ImageReader(top_stream)
+
         if smart_border_mode == "scaled":
             can.drawImage(
                 top_reader,
-                -overdue_border,
+                0,  # No extension left/right
                 current_height - border_y - overlap_extension_y,
-                current_width + 2 * overdue_border,
+                current_width,  # No extension left/right
                 border_y + overlap_extension_y + overdue_border,
             )
         else:
             can.drawImage(
                 top_reader,
-                border_x - overdue_border,
+                border_x,  # No extension left/right
                 current_height - border_y - overlap_extension_y,
-                start_width_points + 2 * overdue_border,
+                start_width_points,  # No extension left/right
                 border_y + overlap_extension_y + overdue_border,
             )
 
@@ -958,17 +962,17 @@ def create_smart_borders_scaled(
         if smart_border_mode == "scaled":
             can.drawImage(
                 bottom_reader,
-                -overdue_border,
-                -overdue_border,
-                current_width + 2 * overdue_border,
+                0,  # No extension left/right
+                -overdue_border,  # Only extend down (outward)
+                current_width,  # No extension left/right
                 border_y + overlap_extension_y + overdue_border,
             )
         else:
             can.drawImage(
                 bottom_reader,
-                border_x - overdue_border,
-                -overdue_border,
-                start_width_points + 2 * overdue_border,
+                border_x,  # No extension left/right
+                -overdue_border,  # Only extend down (outward)
+                start_width_points,  # No extension left/right
                 border_y + overlap_extension_y + overdue_border,
             )
 
@@ -976,7 +980,7 @@ def create_smart_borders_scaled(
         print("Skipping top/bottom borders - not needed")
 
     # Fill corners with averaged colors from neighboring edges
-    if border_x > 0 and border_y > 0:
+    if border_x > minimal_resolution and border_y > minimal_resolution:
         # Helper function to calculate corner colors from neighboring edges
         def get_corner_color(edge1, edge2, position1, position2):
             """Calculate average color between two edge pixels at specified positions"""
@@ -1100,293 +1104,6 @@ def create_smart_borders_scaled(
 
     print(
         f"Created smart borders using edge colors from original image with filled corners"
-    )
-    return page
-
-
-def create_smart_borders_unscaled(page, target_width_mm, target_height_mm):
-    """Create smart borders without scaling the page, filling corners with neighboring edge colors
-
-    Args:
-        page: PDF page object to process
-        target_width_mm: Target width in millimeters
-        target_height_mm: Target height in millimeters
-
-    Returns:
-        page: Modified page with smart borders and filled corners using averaged edge colors
-    """
-    import numpy as np
-    from PIL import Image
-    from io import BytesIO
-
-    # Convert target dimensions to points
-    target_width_points = mm_to_points(target_width_mm)
-    target_height_points = mm_to_points(target_height_mm)
-
-    # Get current page dimensions in points
-    current_width_points, current_height_points = get_page_dimensions(page)
-
-    # Get image array for edge color extraction (before any modifications)
-    img_array, page_width_mm, page_height_mm, pixels_per_mm = convert_page_to_image(
-        page, dpi=300
-    )
-
-    # Add padding around center to match target size (without scaling)
-    page, (border_x, border_y) = expand_page_centric(
-        page, target_width_points, target_height_points
-    )
-
-    # If no borders are needed, return the page as-is
-    if border_x <= 1 and border_y <= 1:
-        print("No borders needed - page is already at target size")
-        return page
-
-    # Extract edge colors from all four sides
-    edge_width = 3  # Number of pixels to sample from each edge
-
-    # Extract edge strips
-    left_edge = img_array[:, :edge_width, :]  # Left edge
-    right_edge = img_array[:, -edge_width:, :]  # Right edge
-    top_edge = img_array[:edge_width, :, :]  # Top edge
-    bottom_edge = img_array[-edge_width:, :, :]  # Bottom edge
-
-    # Create smart border overlays for each side
-    current_width, current_height = get_page_dimensions(page)
-    packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=(current_width, current_height))
-
-    # Helper function to create repeated border image (not stretched)
-    def create_border_strip(edge_array, target_width, target_height, direction):
-        """Create a border strip by repeating edge colors at natural size"""
-        edge_array = edge_array.astype(np.uint8)
-
-        if direction in ["left", "right"]:
-            # For vertical borders, repeat the edge pattern vertically
-            edge_height = edge_array.shape[0]
-            edge_width = edge_array.shape[1]
-
-            # Calculate how many times we need to repeat the pattern
-            repeats_needed = (target_height // edge_height) + 1
-
-            # Tile the pattern vertically
-            border_image = np.tile(edge_array, (repeats_needed, 1, 1))
-
-            # Crop to exact target height
-            border_image = border_image[:target_height, :, :]
-
-            # If we need a wider border, tile horizontally too
-            if target_width > edge_width:
-                h_repeats = (target_width // edge_width) + 1
-                border_image = np.tile(border_image, (1, h_repeats, 1))
-                border_image = border_image[:, :target_width, :]
-
-            pil_image = Image.fromarray(border_image)
-
-        else:  # top, bottom
-            # For horizontal borders, repeat the edge pattern horizontally
-            edge_height = edge_array.shape[0]
-            edge_width = edge_array.shape[1]
-
-            # Calculate how many times we need to repeat the pattern
-            repeats_needed = (target_width // edge_width) + 1
-
-            # Tile the pattern horizontally
-            border_image = np.tile(edge_array, (1, repeats_needed, 1))
-
-            # Crop to exact target width
-            border_image = border_image[:, :target_width, :]
-
-            # If we need a taller border, tile vertically too
-            if target_height > edge_height:
-                v_repeats = (target_height // edge_height) + 1
-                border_image = np.tile(border_image, (v_repeats, 1, 1))
-                border_image = border_image[:target_height, :, :]
-
-            pil_image = Image.fromarray(border_image)
-
-        print(f"Created natural border strip for {direction}, size: {pil_image.size}")
-        return pil_image
-
-    # Calculate the original content area position
-    content_y_offset = border_y  # Original content starts at this Y position
-    content_height = current_height_points  # Original content height
-
-    # Fill corners with averaged colors from neighboring edges
-    print(
-        "border_x, border_y",
-        border_x,
-        border_y,
-        "bigger than",
-        border_x > 0,
-        border_y > 0,
-    )
-
-    # Helper function to calculate corner colors from neighboring edges
-    def get_corner_color(edge1, edge2, position1, position2):
-        """Calculate average color between two edge pixels at specified positions"""
-        try:
-            # Get colors from the specified positions in each edge
-            color1 = edge1[position1[0], position1[1], :].astype(np.float32)
-            color2 = edge2[position2[0], position2[1], :].astype(np.float32)
-            # Return average color as uint8
-            return ((color1 + color2) / 2).astype(np.uint8)
-        except (IndexError, ValueError):
-            # Fallback to white if there's an issue
-            return np.array([255, 255, 255], dtype=np.uint8)
-
-    # Calculate corner colors from neighboring edges
-    corner_colors = {}
-    if border_x > 0 and border_y > 0:
-        # Top-left corner: average of top edge leftmost pixel and left edge topmost pixel
-        corner_colors["top_left"] = get_corner_color(
-            top_edge,
-            left_edge,
-            (0, 0),  # leftmost pixel of top edge
-            (0, 0),  # topmost pixel of left edge
-        )
-
-        # Top-right corner: average of top edge rightmost pixel and right edge topmost pixel
-        corner_colors["top_right"] = get_corner_color(
-            top_edge,
-            right_edge,
-            (0, -1),  # rightmost pixel of top edge
-            (0, -1),  # topmost pixel of right edge
-        )
-
-        # Bottom-left corner: average of bottom edge leftmost pixel and left edge bottommost pixel
-        corner_colors["bottom_left"] = get_corner_color(
-            bottom_edge,
-            left_edge,
-            (-1, 0),  # leftmost pixel of bottom edge
-            (-1, 0),  # bottommost pixel of left edge
-        )
-
-        # Bottom-right corner: average of bottom edge rightmost pixel and right edge bottommost pixel
-        corner_colors["bottom_right"] = get_corner_color(
-            bottom_edge,
-            right_edge,
-            (-1, -1),  # rightmost pixel of bottom edge
-            (-1, -1),  # bottommost pixel of right edge
-        )
-
-    # Create border strips for each side (only along original content dimensions)
-    if border_x > 1:  # Only create horizontal borders if needed
-        # Left border (only along original content height)
-        left_border_img = create_border_strip(
-            left_edge, int(border_x), int(content_height), "left"
-        )
-        left_stream = BytesIO()
-        left_border_img.save(left_stream, format="PNG")
-        left_stream.seek(0)
-        left_reader = ImageReader(left_stream)
-        can.drawImage(left_reader, 0, border_y, border_x, current_height_points)
-
-        # Right border (only along original content height)
-        right_border_img = create_border_strip(
-            right_edge, int(border_x), int(content_height), "right"
-        )
-        right_stream = BytesIO()
-        right_border_img.save(right_stream, format="PNG")
-        right_stream.seek(0)
-        right_reader = ImageReader(right_stream)
-        can.drawImage(
-            right_reader,
-            current_width - border_x,
-            content_y_offset,
-            border_x,
-            content_height,
-        )
-
-    if border_y > 1:  # Only create vertical borders if needed
-        # Calculate the original content area position
-        content_x_offset = border_x  # Original content starts at this X position
-        content_width = current_width_points  # Original content width
-
-        # Top border (only along original content width)
-        top_border_img = create_border_strip(
-            top_edge, int(content_width), int(border_y), "top"
-        )
-        top_stream = BytesIO()
-        top_border_img.save(top_stream, format="PNG")
-        top_stream.seek(0)
-        top_reader = ImageReader(top_stream)
-        can.drawImage(
-            top_reader,
-            border_x,
-            current_height - border_y,
-            current_width_points,
-            border_y,
-        )
-
-        # Bottom border (only along original content width)
-        bottom_border_img = create_border_strip(
-            bottom_edge, int(content_width), int(border_y), "bottom"
-        )
-        bottom_stream = BytesIO()
-        bottom_border_img.save(bottom_stream, format="PNG")
-        bottom_stream.seek(0)
-        bottom_reader = ImageReader(bottom_stream)
-        can.drawImage(bottom_reader, content_x_offset, 0, content_width, border_y)
-
-    # Fill corners with averaged colors from neighboring edges
-    print(
-        "border_x, border_y",
-        border_x,
-        border_y,
-        "bigger than",
-        border_x > 0,
-        border_y > 0,
-    )
-    if border_x > 0 and border_y > 0:
-        # Helper function to convert RGB to reportlab color
-        def rgb_to_reportlab_color(rgb_array):
-            return Color(
-                rgb_array[0] / 255.0, rgb_array[1] / 255.0, rgb_array[2] / 255.0
-            )
-
-        # Top-left corner
-        can.setFillColor(rgb_to_reportlab_color(corner_colors["top_left"]))
-        can.rect(0, current_height - border_y, border_x, border_y, fill=1, stroke=0)
-
-        # Top-right corner
-        can.setFillColor(rgb_to_reportlab_color(corner_colors["top_right"]))
-        can.rect(
-            current_width - border_x,
-            current_height - border_y,
-            border_x,
-            border_y,
-            fill=1,
-            stroke=0,
-        )
-
-        # Bottom-left corner
-        can.setFillColor(rgb_to_reportlab_color(corner_colors["bottom_left"]))
-        can.rect(0, 0, border_x, border_y, fill=1, stroke=0)
-
-        # Bottom-right corner
-        can.setFillColor(rgb_to_reportlab_color(corner_colors["bottom_right"]))
-        can.rect(current_width - border_x, 0, border_x, border_y, fill=1, stroke=0)
-
-        print("Filled corners with averaged colors from neighboring edges")
-
-    can.save()
-
-    # Check if the canvas has any content before trying to read it
-    packet.seek(0)
-    try:
-        border_reader = PdfReader(packet)
-        if len(border_reader.pages) == 0:
-            print("No border content created - returning original page")
-            return page
-        border_page = border_reader.pages[0]
-        page.merge_page(border_page)
-    except (IndexError, Exception) as e:
-        print(f"Warning: Could not create border overlay: {e}")
-        print("Returning page without smart borders")
-        return page
-
-    print(
-        f"Created unscaled smart borders with corner colors averaged from neighboring edges"
     )
     return page
 
@@ -1806,7 +1523,7 @@ def test_smart_borders_comparison():
     from millimeter_paper_generator import create_test_pdf
 
     # Create a test PDF with some content
-    pdf_path = create_test_pdf(80, 60, border_width_mm=1.0, border_color=(255, 0, 0))
+    pdf_path = create_test_pdf(80, 60, border_width_mm=0.0, border_color=(255, 0, 0))
     print(f"Created test PDF: {pdf_path}")
 
     target_width = 120.5
