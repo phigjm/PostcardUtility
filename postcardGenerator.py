@@ -1,4 +1,4 @@
-from reportlab.lib.pagesizes import A6, landscape
+from reportlab.lib.pagesizes import A6, A4, landscape
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
@@ -131,7 +131,7 @@ def generate_postcard(
     address,
     output_file="postcard.pdf",
     font_path=r"C:\Users\gjm\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
-    page_size=landscape(A6),
+    page_size=landscape(A4),
     border_thickness=5,
     show_debug_lines=False,
     message_area_ratio=0.5,  # Anteil des Messagebereichs (z.B. 0.6 für 3/5 links)
@@ -190,10 +190,6 @@ def generate_postcard(
         new_height = int(img.width / page_ratio)
         top = (img.height - new_height) // 2
         img = img.crop((0, top, img.width, top + new_height))
-
-    img = img.resize(
-        (int(width - 2 * border_thickness), int(height - 2 * border_thickness))
-    )
 
     img_reader = ImageReader(img)
     c.drawImage(
@@ -371,7 +367,8 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
     folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\out\\"
 
     generate_postcard(
-        image_path=r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\i-311.jpeg",
+        # image_path=r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\i-311.jpeg",
+        image_path=r"C:\Users\gjm\Downloads\IMG_20250912_141205_773.jpg",
         message=message,
         address="John Doe\n123 Main Street\n12345 Hometown\nCountry",
         output_file=folder + "postcard.pdf",
@@ -385,5 +382,5 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
     process_postcard(
         folder + "postcard.pdf",
         folder + "print_version.pdf",
-        folder + "preview_version.jpg",
+        folder + "preview_version.pdf",
     )
