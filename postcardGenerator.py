@@ -8,6 +8,28 @@ from PIL import Image
 import textwrap
 
 
+def get_font_line_height(font_name, font_size):
+    """
+    Calculate line height based on font-specific metrics.
+
+    :param font_name: Name of the font
+    :param font_size: Size of the font in points
+    :return: Line height in points
+    """
+    try:
+        font_info = pdfmetrics.getFont(font_name)
+        font_ascent = font_info.face.ascent
+        font_descent = font_info.face.descent
+
+        # Calculate line height based on actual font metrics with small padding
+        actual_font_height = font_ascent - font_descent  # descent is negative
+        line_height = actual_font_height * font_size / 1000 + 2  # Add 2pt padding
+        return line_height
+    except:
+        # Fallback to simple calculation if font metrics not available
+        return font_size * 1.2  # 120% of font size is a common line height
+
+
 def wrap_text_to_width(text, max_width, canvas_obj, font_name, font_size):
     """
     Wrap text to fit within max_width using actual character measurements.
@@ -217,22 +239,27 @@ def generate_postcard(
             else:
                 wrapped_lines.append("")
 
-        # Calculate total height needed
-        line_height = font_size + 2
+        # Calculate total height needed using font-specific metrics
+        line_height = get_font_line_height(font_name, font_size)
         total_text_height = len(wrapped_lines) * line_height
 
         if total_text_height < height - hight_margin:
             break
         font_size -= 1
 
-    if len(wrapped_lines) * (font_size + 2) >= height - hight_margin:
+    # Recalculate line height for final font size
+    c.setFont(font_name, font_size)
+    final_line_height = get_font_line_height(font_name, font_size)
+
+    if len(wrapped_lines) * final_line_height >= height - hight_margin:
         print("WARNING: Message too long to fit on postcard.")
         # Trim lines that overflow
-        max_lines = int((height - hight_margin) / (font_size + 2))
+        max_lines = int((height - hight_margin) / final_line_height)
         wrapped_lines = wrapped_lines[:max_lines]
 
     text_obj = c.beginText(margin, height - margin - font_size)
     text_obj.setFont(font_name, font_size)
+    text_obj.setLeading(final_line_height)  # Set line spacing to calculated line height
     for line in wrapped_lines:
         text_obj.textLine(line)
     c.drawText(text_obj)
@@ -271,6 +298,7 @@ def generate_postcard(
             f"HeightMargin: {hight_margin/mm:.1f}mm",
         )
         c.drawString(margin + 2, margin + 2, f"FontSize: {font_size}pt")
+        c.drawString(margin + 2, margin + 12, f"LineHeight: {final_line_height:.1f}pt")
 
         # Reset colors
         c.setStrokeColorRGB(0, 0, 0)  # Black
@@ -320,7 +348,11 @@ def generate_postcard(
 # Example usage
 if __name__ == "__main__":
     message = "4Greetings from the mountains! \n Wish you were here. \n \n asdlf alseiofn asdiofn asdfoi nweiofnasiofn owienf aaaaoiasdnfoiasdfnioasndfoiasdfnasoidfnaosidfnasdoifnaaa aaaaosidfoiasndfoinasdoifnasodifnaosidfnaosidfnaaa oiasdfn asdofn asdifnoasdnf oiasdfnoi nasidfo nasdiofna sdnfiasdf aaaaaaaaaaaaaaaaalasdkflöasdfkoiowenroaisnfojasdfoiasdfnasodfiaaaaaaaaaaaaa askdfaklsd foiansdfo isadnfoas difasof sdofinsdifnoi sdnfisndfo isdnf osdibf soidfi sdoifiosdfisodfo sdifods iofiosdfio sdiof isdfi sdif isddfoisoidf ois asdifo osadfn sidfno aisdfn asoidfn asoidfno asdifnasdoif nasdofn asdoifn asdoifn asdfoia asdkfkalsd asdfoi asdnf asodif asdfioasd foasdiof ioasdfio asidf ioasdfiaisdfioasdiofioasdfioioi iio ioasdiofiofi iosdfdio ifisdfio siodf ioiosdf iodisdiof io ioios fdioiosdfi iosidf i sdf ioasndf asdfi oisdfio sdiofio iosdiofi isdio iosdifo iosidfio isdfi iosdiof isdi iosdfio iosdfiid siofi isdiof iosiodf iosdiof iosdif iosdfio isdfio oisdfio ioios difoiosdiofi sidfio isdfinoisdfn sonidf nsoifdi osifd iosdiof isidfoi oisdfio sidofi osdfioi osdiof iosdfio iosif iosdfio iosdf sdf"
-    print(message)
+    message = """Liebe Alina,
+
+ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama aussprechen. Ich kann mir nur annähernd vorstellen, wie schwer dieser Abschied für dich sein muss. Deine Mutter war ein wichtiger Teil deines Lebens, und es ist unendlich schwer, so einen geliebten Menschen loslassen zu müssen.
+"""
+    # print(message)
 
     folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\out\\"
 
