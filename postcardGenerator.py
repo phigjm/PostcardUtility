@@ -134,6 +134,7 @@ def generate_postcard(
     page_size=landscape(A6),
     border_thickness=5,
     show_debug_lines=False,
+    message_area_ratio=0.5,  # Anteil des Messagebereichs (z.B. 0.6 für 3/5 links)
 ):
     """
     Generate a postcard PDF in landscape format.
@@ -219,11 +220,14 @@ def generate_postcard(
     margin = 10 * mm
     c.setFont(font_name, 12)
 
-    # Message (left side)
-    max_width = width / 2 - 2 * margin  # option to add margin -2*margin
+    # Message (linker Bereich)
+    # max_width und Divider-Position werden durch message_area_ratio bestimmt
+    divider_x = width * message_area_ratio
+    max_width = divider_x - 2 * margin
     font_size = 12
 
     # Auto-shrink font size and line wrapping using actual character widths
+
     hight_margin = 1 * margin
 
     lines = message.splitlines()
@@ -272,16 +276,21 @@ def generate_postcard(
         # Draw margin boundaries
         c.rect(margin, margin, width - 2 * margin, height - 2 * margin)
 
-        # Draw text area boundary (left side)
+        # Draw text area boundary (linker Bereich)
         text_area_width = max_width
         text_area_height = height - hight_margin
         c.rect(margin, margin, text_area_width, text_area_height)
 
-        # Draw max width line for text
+        # Draw max width line for text (rechte Begrenzung Messagebereich)
         c.line(margin + max_width, margin, margin + max_width, height - margin)
 
+        # Draw Divider line (Mittelstreifen)
+        c.setStrokeColorRGB(0, 0, 1)  # Blau für Divider
+        c.line(divider_x, margin, divider_x, height - margin)
+        c.setStrokeColorRGB(1, 0, 0)  # Zurück zu Rot für andere Debug-Linien
+
         # Draw height margin line
-        c.line(margin, height - hight_margin, width / 2, height - hight_margin)
+        c.line(margin, height - hight_margin, divider_x, height - hight_margin)
 
         # Label the boundaries
         c.setFont(font_name, 6)
@@ -299,13 +308,16 @@ def generate_postcard(
         )
         c.drawString(margin + 2, margin + 2, f"FontSize: {font_size}pt")
         c.drawString(margin + 2, margin + 12, f"LineHeight: {final_line_height:.1f}pt")
+        c.drawString(
+            divider_x + 2, height - margin - 8, f"DividerX: {divider_x/mm:.1f}mm"
+        )
 
         # Reset colors
         c.setStrokeColorRGB(0, 0, 0)  # Black
         c.setFillColorRGB(0, 0, 0)  # Black
 
-    # Address (bottom right)
-    addr_x = width / 2 + margin
+    # Address (rechts)
+    addr_x = divider_x + margin
     c.setFont(font_name, 12)
 
     # Calculate starting position for address (top-down)
@@ -319,27 +331,29 @@ def generate_postcard(
         addr_y -= line_height  # move down for next line
 
     # Stamp box (top right)
-    stamp_size = 30 * mm
+    stamp_size_x = 20 * mm
+    stamp_size_y = 27 * mm
     c.rect(
-        width - margin - stamp_size,
-        height - margin - stamp_size,
-        stamp_size,
-        stamp_size,
+        width - margin - stamp_size_x,
+        height - margin - stamp_size_y,
+        stamp_size_x,
+        stamp_size_y,
     )
     c.setFont(font_name, 8)
     c.drawCentredString(
-        width - margin - stamp_size / 2, height - margin - stamp_size / 2, "STAMP"
+        width - margin - stamp_size_x / 2, height - margin - stamp_size_y / 2, "STAMP"
     )
 
     # URL under stamp
     c.setFont(font_name, 10)
-    c.drawRightString(
-        width - margin, height - margin - stamp_size - 12, "ServiceCard.de"
-    )
+    if False:  # todo add subtext to Stamp
+        c.drawRightString(
+            width - margin, height - margin - stamp_size - 12, "ServiceCard.de"
+        )
 
-    # Divider line
+    # Divider line (Mittelstreifen)
     c.setStrokeColorRGB(0, 0, 0)  # reset to black
-    c.line(width / 2, margin, width / 2, height - margin)
+    c.line(divider_x, margin, divider_x, height - margin)
 
     # Save
     c.save()
