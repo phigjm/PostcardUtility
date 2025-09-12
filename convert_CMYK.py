@@ -1,5 +1,7 @@
 import subprocess
 import os
+import tempfile
+import shutil
 
 
 args_hq = [
@@ -41,8 +43,14 @@ def convertPDFtoCMYK(pdf_in, pdf_out=None):
     # convert pdf_in to absolute path
     pdf_in = os.path.abspath(pdf_in)
 
-    if pdf_out is None:
-        pdf_out = os.path.splitext(pdf_in)[0] + "_CMYK.pdf"
+    # If pdf_out is None, we need to replace the original file
+    # Since Ghostscript doesn't allow same input/output, use temp file
+    replace_original = pdf_out is None
+    if replace_original:
+        # Create a temporary file for output
+        temp_fd, pdf_out = tempfile.mkstemp(suffix=".pdf")
+        os.close(temp_fd)  # Close the file descriptor, we only need the path
+
     gs_path = "gswin64c.exe"  # Adjust to your GhostScript executable path if needed
 
     quality_args = args_hq
@@ -59,9 +67,21 @@ def convertPDFtoCMYK(pdf_in, pdf_out=None):
     # print the command for debugging
     print("Running command:", " ".join(args))
 
-    val = subprocess.run(args, check=True)
-    print("val", val)
-    print(f"Converted {pdf_in} to CMYK and saved as {pdf_out}")
+    try:
+        val = subprocess.run(args, check=True)
+        print("val", val)
+
+        # If we're replacing the original file, move temp file to original location
+        if replace_original:
+            shutil.move(pdf_out, pdf_in)
+            pdf_out = pdf_in
+
+        print(f"Converted {pdf_in} to CMYK and saved as {pdf_out}")
+    except Exception as e:
+        # Clean up temp file if something went wrong
+        if replace_original and os.path.exists(pdf_out):
+            os.remove(pdf_out)
+        raise e
 
     return pdf_out
 
