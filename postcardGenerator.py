@@ -120,7 +120,7 @@ def generate_postcard(
     :param message: Text message for back
     :param address: Address string (multiline)
     :param output_file: Output PDF filename
-    :param font_path: Path to TTF font or name of built-in font
+    :param font_path: Path to TTF font or name of built-in font or Google font name
     :param page_size: Page size tuple (default=A6 landscape)
     :param border_thickness: Border size in points
     :param show_debug_lines: Whether to show debugging boundary lines (default=False)
@@ -128,12 +128,36 @@ def generate_postcard(
 
     width, height = page_size
 
-    # Register font if it's a TTF file
-    if font_path.endswith(".ttf"):
-        pdfmetrics.registerFont(TTFont("CustomFont", font_path))
-        font_name = "CustomFont"
+    # Register font if it's a TTF/OTF file
+    if font_path.endswith((".ttf", ".otf")):
+        try:
+            pdfmetrics.registerFont(TTFont("CustomFont", font_path))
+            font_name = "CustomFont"
+            print(f"Successfully registered custom font: {font_path}")
+        except Exception as e:
+            print(f"Failed to register custom font {font_path}: {e}")
+            font_name = "Helvetica"  # Fallback to default
     else:
-        font_name = font_path
+        # Google fonts and built-in fonts
+        google_font_mapping = {
+            "Handlee": "Helvetica",
+            "Open Sans": "Helvetica", 
+            "Lato": "Helvetica",
+            "Roboto": "Helvetica",
+            "Zeyada": "Helvetica-Oblique",
+            "Sacramento": "Helvetica-Oblique",
+            "Cookie": "Helvetica-Oblique",
+            "Coming Soon": "Helvetica",
+            "Dawning of a New Day": "Helvetica-Oblique",
+            "Fuzzy Bubbles": "Helvetica",
+        }
+        
+        # Map Google fonts to built-in ReportLab fonts as fallback
+        if font_path in google_font_mapping:
+            font_name = google_font_mapping[font_path]
+            print(f"Using built-in font {font_name} as fallback for Google font {font_path}")
+        else:
+            font_name = font_path  # Use as-is for built-in fonts like "Helvetica"
 
     # Create canvas
     c = canvas.Canvas(output_file, pagesize=page_size)
