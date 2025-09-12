@@ -278,11 +278,17 @@ def generate_postcard(
 
     # Address (bottom right)
     addr_x = width / 2 + margin
-    addr_y = margin + 40  # start above bottom margin
     c.setFont(font_name, 12)
-    for line in address.splitlines():
+
+    # Calculate starting position for address (top-down)
+    address_lines = address.splitlines()
+    line_height = 14
+    total_address_height = len(address_lines) * line_height
+    addr_y = margin + 40 + total_address_height  # start from top of address block
+
+    for line in address_lines:
         c.drawString(addr_x, addr_y, line)
-        addr_y += 14
+        addr_y -= line_height  # move down for next line
 
     # Stamp box (top right)
     stamp_size = 30 * mm
