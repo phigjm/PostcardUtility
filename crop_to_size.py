@@ -170,6 +170,9 @@ def detect_border(np_image, tolerance=10, skip=1):
     # If border detected, determine border color: take the first pixel of top border or fallback
 
     border_color = average_color(border_sizes, np_image, channels, skip)
+
+    # debugging
+    # border_color = "#000000"  # for debugging
     # print("#############BorderColor", border_color)
     return border_color, border_sizes
     if minsize > 0:
@@ -1007,6 +1010,8 @@ def create_smart_borders_scaled(
 
         # Helper function to convert RGB to reportlab color
         def rgb_to_reportlab_color(rgb_array):
+            # debugging
+            # return Color(1, 0, 0)
             return Color(
                 rgb_array[0] / 255.0, rgb_array[1] / 255.0, rgb_array[2] / 255.0
             )
@@ -1420,7 +1425,20 @@ def process_pdf_for_print(
                         target_width_mm,
                         target_height_mm,
                     )
+                    target_height_mm_with_bleeding, target_width_mm_with_bleeding = (
+                        target_width_mm_with_bleeding,
+                        target_height_mm_with_bleeding,
+                    )
                     page = page.rotate(90)  # TODO ask if nescessary
+
+                    # if page is larger than target size, scale down to target size
+                scale_factor = max(
+                    target_width_mm / current_width_mm,
+                    target_height_mm / current_height_mm,
+                )
+                if scale_factor < 1.0:
+                    print("Scaling page down to fit target size")
+                    page.scale(scale_factor, scale_factor)
 
                 processed_page = create_smart_borders_scaled(
                     page=page,
