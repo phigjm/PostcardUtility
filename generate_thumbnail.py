@@ -2,6 +2,7 @@ import fitz  # PyMuPDF
 
 
 def generate_pdf_thumbnail(pdf_path, thumbnail_path, thumbnail_width=200):
+    print("Generating thumbnail...", pdf_path, thumbnail_path)
     # Open the PDF file
     doc = fitz.open(pdf_path)
 
