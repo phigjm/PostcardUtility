@@ -5,6 +5,167 @@ from typing import List, Tuple, Optional
 import copy
 
 
+
+
+def combine_and_merge_double_sided_pdfs(
+    pdf_paths: List[str],
+    output_path: str,
+    layout: Tuple[int, int] = (2, 2),
+    flip_on_short_edge: bool = False,
+) -> bool:
+    """
+    Kombiniert eine beliebige Anzahl von doppelseitigen PDFs in einem Grid-Layout.
+    Erstellt mehrseitige PDFs wenn mehr PDFs vorhanden sind als in ein Grid passen.
+
+    Jedes Input-PDF sollte genau 2 Seiten haben (Vorder- und Rückseite).
+    Das Output-PDF wird mehrere Seitenpaare haben wenn nötig:
+    - Seite 1, 3, 5, ...: Vorderseiten im Grid-Layout
+    - Seite 2, 4, 6, ...: Rückseiten im Grid-Layout
+
+    Args:
+        pdf_paths: Liste der Pfade zu den Input-PDF-Dateien (jedes sollte 2 Seiten haben)
+        output_path: Pfad für das Output-PDF
+        layout: Tuple (cols, rows) für das Grid-Layout, z.B. (2,2) für 2x2 Grid
+        flip_on_short_edge: Falls True, wird für kurze Seite gespiegelt; Falls False, für lange Seite (Standard)
+
+    Returns:
+        bool: True wenn erfolgreich, False bei Fehler
+    """
+    
+    try:
+        cols, rows = layout
+        pages_per_grid = cols * rows
+        
+        if not pdf_paths:
+            print("Fehler: Keine PDF-Pfade angegeben")
+            return False
+        
+        total_pdfs = len(pdf_paths)
+        grids_needed = (total_pdfs + pages_per_grid - 1) // pages_per_grid  # Aufrunden
+        
+        print(f"Layout: {cols}x{rows} = {pages_per_grid} PDFs pro Grid")
+        print(f"Gesamt PDFs: {total_pdfs}")
+        print(f"Benötigte Grids: {grids_needed}")
+        print(f"Output wird {grids_needed * 2} Seiten haben")
+        
+        # Alle PDFs laden und validieren
+        all_front_pages = []
+        all_back_pages = []
+        
+        # Referenzgröße aus erstem PDF ermitteln
+        reference_width = None
+        reference_height = None
+        
+        for i, pdf_path in enumerate(pdf_paths):
+            if not os.path.exists(pdf_path):
+                print(f"Warnung: PDF nicht gefunden: {pdf_path}")
+                continue
+
+            reader = PdfReader(pdf_path)
+
+            if len(reader.pages) < 1:
+                print(f"Warnung: PDF {pdf_path} hat keine Seiten")
+                continue
+            elif len(reader.pages) == 1:
+                print(f"Info: PDF {pdf_path} hat nur 1 Seite, verwende diese als Vorder- und Rückseite")
+                front_page = reader.pages[0]
+                back_page = reader.pages[0]
+            else:
+                front_page = reader.pages[0]
+                back_page = reader.pages[1]
+                if len(reader.pages) > 2:
+                    print(f"Info: PDF {pdf_path} hat {len(reader.pages)} Seiten, verwende nur die ersten 2")
+
+            # Referenzgröße beim ersten gültigen PDF setzen
+            if reference_width is None:
+                reference_width = float(front_page.mediabox.width)
+                reference_height = float(front_page.mediabox.height)
+                print(f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points")
+
+            all_front_pages.append(front_page)
+            all_back_pages.append(back_page)
+        
+        if not all_front_pages:
+            print("Fehler: Keine gültigen PDFs gefunden")
+            return False
+        
+        # Ausgabegröße berechnen
+        output_width = reference_width * cols
+        output_height = reference_height * rows
+        
+        print(f"Ausgabegröße: {output_width:.1f} x {output_height:.1f} points")
+        
+        # Flip-Logik bestimmen (aus der ursprünglichen Funktion übernommen)
+        is_output_wider_than_tall = output_width > output_height
+        effective_flip_on_short_edge = flip_on_short_edge
+        
+        if not is_output_wider_than_tall:
+            effective_flip_on_short_edge = not flip_on_short_edge
+            print(f"Hochformat erkannt ({output_width:.0f}x{output_height:.0f}) - Flip-Logik angepasst")
+        else:
+            print(f"Querformat erkannt ({output_width:.0f}x{output_height:.0f}) - Standard Flip-Logik")
+        
+        print(f"Original flip_on_short_edge: {flip_on_short_edge}")
+        print(f"Effektive flip_on_short_edge: {effective_flip_on_short_edge}")
+        
+        writer = PdfWriter()
+        
+        # Für jedes benötigte Grid ein Seitenpaar erstellen
+        for grid_index in range(grids_needed):
+            start_pdf_index = grid_index * pages_per_grid
+            end_pdf_index = min(start_pdf_index + pages_per_grid, len(all_front_pages))
+            
+            print(f"\nErstelle Grid {grid_index + 1}/{grids_needed} (PDFs {start_pdf_index + 1}-{end_pdf_index})")
+            
+            # PDFs für dieses Grid extrahieren
+            grid_front_pages = all_front_pages[start_pdf_index:end_pdf_index]
+            grid_back_pages = all_back_pages[start_pdf_index:end_pdf_index]
+            
+            # Mit leeren Seiten auffüllen falls nötig
+            while len(grid_front_pages) < pages_per_grid:
+                empty_page = PageObject.create_blank_page(
+                    width=reference_width, height=reference_height
+                )
+                grid_front_pages.append(empty_page)
+                grid_back_pages.append(empty_page)
+                print(f"Leere Seite hinzugefügt für Position {len(grid_front_pages)}")
+            
+            # Vorderseite für dieses Grid erstellen
+            front_output_page = create_grid_page_front(
+                grid_front_pages,
+                layout,
+                (output_width, output_height),
+                (reference_width, reference_height),
+            )
+            writer.add_page(front_output_page)
+            
+            # Rückseite für dieses Grid erstellen
+            back_output_page = create_grid_page_back(
+                grid_back_pages,
+                layout,
+                (output_width, output_height),
+                (reference_width, reference_height),
+                effective_flip_on_short_edge,
+            )
+            writer.add_page(back_output_page)
+        
+        # PDF speichern
+        with open(output_path, "wb") as output_file:
+            writer.write(output_file)
+        
+        print(f"\nMehrseitiges doppelseitiges PDF erfolgreich erstellt: {output_path}")
+        print(f"- {grids_needed} Grid(s) mit je {pages_per_grid} PDFs im {cols}x{rows} Layout")
+        print(f"- Insgesamt {grids_needed * 2} Seiten ({grids_needed} Vorderseiten, {grids_needed} Rückseiten)")
+        print(f"- Verarbeitete PDFs: {len(all_front_pages)}")
+        print(f"- Wendeseite (ursprünglich): {'Kurze Seite' if flip_on_short_edge else 'Lange Seite'}")
+        print(f"- Wendeseite (effektiv): {'Kurze Seite' if effective_flip_on_short_edge else 'Lange Seite'}")
+        return True
+        
+    except Exception as e:
+        print(f"Fehler beim Kombinieren der PDFs: {str(e)}")
+        return False
+
+
 def combine_double_sided_pdfs(
     pdf_paths: List[str],
     output_path: str,
@@ -396,6 +557,34 @@ def combine_a5_to_a4(
     )
 
 
+# Convenience-Funktionen für mehrseitige Variante
+def combine_multiple_a6_postcards_to_a4(
+    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+) -> bool:
+    """Beliebige Anzahl A6 Postkarten-PDFs zu mehrseitigem A4 PDF (2x2 Layout pro Seite)"""
+    return combine_and_merge_double_sided_pdfs(
+        pdf_paths, output_path, layout=(2, 2), flip_on_short_edge=flip_on_short_edge
+    )
+
+
+def combine_multiple_a6_postcards_to_a3(
+    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+) -> bool:
+    """Beliebige Anzahl A6 Postkarten-PDFs zu mehrseitigem A3 PDF (2x4 Layout pro Seite)"""
+    return combine_and_merge_double_sided_pdfs(
+        pdf_paths, output_path, layout=(2, 4), flip_on_short_edge=flip_on_short_edge
+    )
+
+
+def combine_multiple_a5_to_a4(
+    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+) -> bool:
+    """Beliebige Anzahl A5 PDFs zu mehrseitigem A4 PDF (1x2 Layout pro Seite)"""
+    return combine_and_merge_double_sided_pdfs(
+        pdf_paths, output_path, layout=(1, 2), flip_on_short_edge=flip_on_short_edge
+    )
+
+
 if __name__ == "__main__":
     # Layout-Beispiele anzeigen
     print("Layout-Beispiele für doppelseitigen Druck:")
@@ -419,22 +608,42 @@ if __name__ == "__main__":
 
     # 4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2) - Wenden auf langer Seite
     success = combine_a6_postcards_to_a4(
-        pdf_files, "Examples/postcards_a4_long_side.pdf", flip_on_short_edge=False
+        pdf_files[:4], "Examples/postcards_a4_long_side.pdf", flip_on_short_edge=False
     )
     if success:
         print("A4 Postkarten-PDF (lange Seite) erfolgreich erstellt!")
 
     # 4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2) - Wenden auf kurzer Seite
     success = combine_a6_postcards_to_a4(
-        pdf_files, "Examples/postcards_a4_short_side.pdf", flip_on_short_edge=True
+        pdf_files[:4], "Examples/postcards_a4_short_side.pdf", flip_on_short_edge=True
     )
     if success:
         print("A4 Postkarten-PDF (kurze Seite) erfolgreich erstellt!")
 
     # Oder mit benutzerdefinierten Parametern
     success = combine_double_sided_pdfs(
-        pdf_files,
+        pdf_files[:4],
         "Examples/custom_postcards.pdf",
+        layout=(2, 2),
+        flip_on_short_edge=False,
+    )
+
+    # NEUE mehrseitige Funktion - alle 8 PDFs in einem mehrseitigen Dokument
+    print("\n=== Teste mehrseitige Funktion ===")
+    success = combine_multiple_a6_postcards_to_a4(
+        pdf_files, "Examples/multipage_postcards_a4.pdf", flip_on_short_edge=False
+    )
+    if success:
+        print("Mehrseitiges A4 Postkarten-PDF erfolgreich erstellt!")
+
+    # Test mit 10 PDFs (wird 3 Seiten erstellen: 4+4+2 PDFs)
+    extended_pdf_files = pdf_files + [
+        r"Examples/postcard9.pdf",
+        r"Examples/postcard10.pdf"
+    ]
+    success = combine_and_merge_double_sided_pdfs(
+        extended_pdf_files,
+        "Examples/extended_multipage_postcards.pdf",
         layout=(2, 2),
         flip_on_short_edge=False,
     )
