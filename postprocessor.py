@@ -22,10 +22,9 @@ def process_postcard(input_pdf, printversion_pdf, preview_version_pdf):
 
     # todo convert cmyk
     if True:  # dosnt work well yet
-        input_pdf = printversion_pdf
-        printversion_pdf = printversion_pdf.replace(".pdf", "_CMYK.pdf")
+
         try:
-            convertPDFtoCMYK(input_pdf, printversion_pdf)
+            convertPDFtoCMYK(printversion_pdf)
             print(f"Converted {printversion_pdf} to CMYK")
         except Exception as e:
             print(f"Error converting to CMYK: {e}")
