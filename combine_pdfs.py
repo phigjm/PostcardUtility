@@ -10,6 +10,7 @@ def combine_and_merge_double_sided_pdfs(
     output_path: str,
     layout: Tuple[int, int] = (2, 2),
     flip_on_short_edge: bool = False,
+    outer_border: float = 0.0,  # Border in mm around the entire combined page
 ) -> bool:
     """
     Kombiniert eine beliebige Anzahl von doppelseitigen PDFs in einem Grid-Layout.
@@ -25,12 +26,15 @@ def combine_and_merge_double_sided_pdfs(
         output_path: Pfad für das Output-PDF
         layout: Tuple (cols, rows) für das Grid-Layout, z.B. (2,2) für 2x2 Grid
         flip_on_short_edge: Falls True, wird für kurze Seite gespiegelt; Falls False, für lange Seite (Standard)
+        outer_border: Border in mm around the entire combined page (default: 0.0)
 
     Returns:
         bool: True wenn erfolgreich, False bei Fehler
     """
 
-    double_singlePagesites = False
+    # Convert mm to points (1 mm = 2.834645669 points)
+    border_points = outer_border * 2.834645669
+    double_single_pages = False
     try:
         cols, rows = layout
         pages_per_grid = cols * rows
@@ -70,7 +74,7 @@ def combine_and_merge_double_sided_pdfs(
 
                 front_page = reader.pages[0]
 
-                if double_singlePagesites:
+                if double_single_pages:
                     back_page = reader.pages[0]
                 else:
                     if reference_width is None:
@@ -103,24 +107,29 @@ def combine_and_merge_double_sided_pdfs(
             print("Fehler: Keine gültigen PDFs gefunden")
             return False
 
-        # Ausgabegröße berechnen
-        output_width = reference_width * cols
-        output_height = reference_height * rows
+        # Ausgabegröße berechnen (Grid-Größe + Outer Border)
+        grid_width = reference_width * cols
+        grid_height = reference_height * rows
+        output_width = grid_width + (2 * border_points)
+        output_height = grid_height + (2 * border_points)
 
-        print(f"Ausgabegröße: {output_width:.1f} x {output_height:.1f} points")
+        print(f"Grid-Größe: {grid_width:.1f} x {grid_height:.1f} points")
+        if border_points > 0:
+            print(f"Outer Border: {outer_border:.1f} mm ({border_points:.1f} points)")
+        print(f"Finale Ausgabegröße: {output_width:.1f} x {output_height:.1f} points")
 
-        # Flip-Logik bestimmen (aus der ursprünglichen Funktion übernommen)
-        is_output_wider_than_tall = output_width > output_height
+        # Flip-Logik bestimmen (basierend auf Grid-Größe, nicht finale Ausgabegröße)
+        is_grid_wider_than_tall = grid_width > grid_height
         effective_flip_on_short_edge = flip_on_short_edge
 
-        if not is_output_wider_than_tall:
+        if not is_grid_wider_than_tall:
             effective_flip_on_short_edge = not flip_on_short_edge
             print(
-                f"Hochformat erkannt ({output_width:.0f}x{output_height:.0f}) - Flip-Logik angepasst"
+                f"Hochformat-Grid erkannt ({grid_width:.0f}x{grid_height:.0f}) - Flip-Logik angepasst"
             )
         else:
             print(
-                f"Querformat erkannt ({output_width:.0f}x{output_height:.0f}) - Standard Flip-Logik"
+                f"Querformat-Grid erkannt ({grid_width:.0f}x{grid_height:.0f}) - Standard Flip-Logik"
             )
 
         print(f"Original flip_on_short_edge: {flip_on_short_edge}")
@@ -156,6 +165,7 @@ def combine_and_merge_double_sided_pdfs(
                 layout,
                 (output_width, output_height),
                 (reference_width, reference_height),
+                border_points,
             )
             writer.add_page(front_output_page)
 
@@ -166,6 +176,7 @@ def combine_and_merge_double_sided_pdfs(
                 (output_width, output_height),
                 (reference_width, reference_height),
                 effective_flip_on_short_edge,
+                border_points,
             )
             writer.add_page(back_output_page)
 
@@ -199,6 +210,7 @@ def combine_double_sided_pdfs(
     output_path: str,
     layout: Tuple[int, int] = (2, 2),
     flip_on_short_edge: bool = False,
+    outer_border: float = 0.0,
 ) -> bool:
     """
     Kombiniert mehrere doppelseitige PDFs in einem Grid-Layout.
@@ -282,20 +294,26 @@ def combine_double_sided_pdfs(
                 front_pages.append(empty_page)
                 back_pages.append(empty_page)
 
-        # Ausgabegröße berechnen
-        output_width = reference_width * cols
-        output_height = reference_height * rows
+        # Ausgabegröße berechnen (Grid-Größe + Outer Border)
+        border_points = outer_border * 2.834645669  # Convert mm to points
+        grid_width = reference_width * cols
+        grid_height = reference_height * rows
+        output_width = grid_width + (2 * border_points)
+        output_height = grid_height + (2 * border_points)
 
-        print(f"Ausgabegröße: {output_width:.1f} x {output_height:.1f} points")
+        print(f"Grid-Größe: {grid_width:.1f} x {grid_height:.1f} points")
+        if border_points > 0:
+            print(f"Outer Border: {outer_border:.1f} mm ({border_points:.1f} points)")
+        print(f"Finale Ausgabegröße: {output_width:.1f} x {output_height:.1f} points")
 
-        # Automatisch bestimmen, welche Seite die kurze ist basierend auf dem Layout
+        # Automatisch bestimmen, welche Seite die kurze ist basierend auf dem Grid-Layout
         # und entsprechend das flip_on_short_edge anpassen
-        is_output_wider_than_tall = output_width > output_height
+        is_grid_wider_than_tall = grid_width > grid_height
 
         # Für korrekte Druckorientierung muss das Flip-Verhalten an die Ausrichtung angepasst werden
         effective_flip_on_short_edge = flip_on_short_edge
 
-        if not is_output_wider_than_tall:  # Hochformat (output_height >= output_width)
+        if not is_grid_wider_than_tall:  # Hochformat (grid_height >= grid_width)
             # Bei Hochformat (z.B. 2x3, 2x4) ist die kurze Seite horizontal
             # Das bedeutet, die ursprüngliche flip_on_short_edge Logik muss invertiert werden
             effective_flip_on_short_edge = not flip_on_short_edge
@@ -318,6 +336,7 @@ def combine_double_sided_pdfs(
             layout,
             (output_width, output_height),
             (reference_width, reference_height),
+            border_points,
         )
         writer.add_page(front_output_page)
 
@@ -328,6 +347,7 @@ def combine_double_sided_pdfs(
             (output_width, output_height),
             (reference_width, reference_height),
             effective_flip_on_short_edge,
+            border_points,
         )
         writer.add_page(back_output_page)
 
@@ -356,6 +376,7 @@ def create_grid_page_front(
     layout: Tuple[int, int],
     output_size: Tuple[float, float],
     cell_size: Tuple[float, float],
+    border_offset: float = 0.0,
 ) -> PageObject:
     """
     Erstellt eine Vorderseite mit den gegebenen Seiten in einem Grid-Layout.
@@ -366,6 +387,7 @@ def create_grid_page_front(
         layout: (cols, rows) Layout
         output_size: (width, height) der Ausgabeseite
         cell_size: (width, height) einer einzelnen Zelle
+        border_offset: Offset in points for outer border
 
     Returns:
         PageObject: Die erstellte Vorderseite
@@ -383,9 +405,9 @@ def create_grid_page_front(
             page_index = row * cols + col
 
             if page_index < len(pages):
-                # Position berechnen (Y-Koordinate von oben nach unten)
-                x_offset = col * cell_width
-                y_offset = (rows - 1 - row) * cell_height
+                # Position berechnen (Y-Koordinate von oben nach unten) + Border-Offset
+                x_offset = border_offset + (col * cell_width)
+                y_offset = border_offset + ((rows - 1 - row) * cell_height)
 
                 print(
                     f"Vorderseite: Platziere Seite {page_index + 1} an Position ({col}, {row}) -> Offset: ({x_offset:.1f}, {y_offset:.1f})"
@@ -405,6 +427,7 @@ def create_grid_page_back(
     output_size: Tuple[float, float],
     cell_size: Tuple[float, float],
     flip_on_short_edge: bool = False,
+    border_offset: float = 0.0,
 ) -> PageObject:
     """
     Erstellt eine Rückseite mit den gegebenen Seiten in einem Grid-Layout.
@@ -445,9 +468,9 @@ def create_grid_page_back(
                 page_index = row * cols + source_col
 
                 if page_index < len(pages):
-                    # Position berechnen (Y-Koordinate von oben nach unten)
-                    x_offset = col * cell_width
-                    y_offset = (rows - 1 - row) * cell_height
+                    # Position berechnen (Y-Koordinate von oben nach unten) + Border-Offset
+                    x_offset = border_offset + (col * cell_width)
+                    y_offset = border_offset + ((rows - 1 - row) * cell_height)
 
                     print(
                         f"Rückseite (kurze Seite): Platziere Seite {page_index + 1} an Position ({col}, {row}) -> Offset: ({x_offset:.1f}, {y_offset:.1f})"
@@ -467,9 +490,9 @@ def create_grid_page_back(
                 page_index = source_row * cols + col
 
                 if page_index < len(pages):
-                    # Position berechnen (Y-Koordinate von oben nach unten)
-                    x_offset = col * cell_width
-                    y_offset = (rows - 1 - row) * cell_height
+                    # Position berechnen (Y-Koordinate von oben nach unten) + Border-Offset
+                    x_offset = border_offset + (col * cell_width)
+                    y_offset = border_offset + ((rows - 1 - row) * cell_height)
 
                     print(
                         f"Rückseite (lange Seite): Platziere Seite {page_index + 1} an Position ({col}, {row}) -> Offset: ({x_offset:.1f}, {y_offset:.1f})"
@@ -559,57 +582,99 @@ def print_layout_example(
 
 # Convenience-Funktionen für häufige Anwendungsfälle
 def combine_a6_postcards_to_a4(
-    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+    pdf_paths: List[str],
+    output_path: str,
+    flip_on_short_edge: bool = False,
+    outer_border: float = 0.0,
 ) -> bool:
     """4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2 Layout)"""
     return combine_double_sided_pdfs(
-        pdf_paths, output_path, layout=(2, 2), flip_on_short_edge=flip_on_short_edge
+        pdf_paths,
+        output_path,
+        layout=(2, 2),
+        flip_on_short_edge=flip_on_short_edge,
+        outer_border=outer_border,
     )
 
 
 def combine_a6_postcards_to_a3(
-    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+    pdf_paths: List[str],
+    output_path: str,
+    flip_on_short_edge: bool = False,
+    outer_border: float = 0.0,
 ) -> bool:
     """8 A6 Postkarten-PDFs zu 1 A3 PDF (2x4 Layout)"""
     return combine_double_sided_pdfs(
-        pdf_paths, output_path, layout=(2, 4), flip_on_short_edge=flip_on_short_edge
+        pdf_paths,
+        output_path,
+        layout=(2, 4),
+        flip_on_short_edge=flip_on_short_edge,
+        outer_border=outer_border,
     )
 
 
 def combine_a5_to_a4(
-    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+    pdf_paths: List[str],
+    output_path: str,
+    flip_on_short_edge: bool = False,
+    outer_border: float = 0.0,
 ) -> bool:
     """2 A5 PDFs zu 1 A4 PDF (1x2 Layout)"""
     return combine_double_sided_pdfs(
-        pdf_paths, output_path, layout=(1, 2), flip_on_short_edge=flip_on_short_edge
+        pdf_paths,
+        output_path,
+        layout=(1, 2),
+        flip_on_short_edge=flip_on_short_edge,
+        outer_border=outer_border,
     )
 
 
 # Convenience-Funktionen für mehrseitige Variante
 def combine_multiple_a6_postcards_to_a4(
-    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+    pdf_paths: List[str],
+    output_path: str,
+    flip_on_short_edge: bool = False,
+    outer_border: float = 0.0,
 ) -> bool:
     """Beliebige Anzahl A6 Postkarten-PDFs zu mehrseitigem A4 PDF (2x2 Layout pro Seite)"""
     return combine_and_merge_double_sided_pdfs(
-        pdf_paths, output_path, layout=(2, 2), flip_on_short_edge=flip_on_short_edge
+        pdf_paths,
+        output_path,
+        layout=(2, 2),
+        flip_on_short_edge=flip_on_short_edge,
+        outer_border=outer_border,
     )
 
 
 def combine_multiple_a6_postcards_to_a3(
-    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+    pdf_paths: List[str],
+    output_path: str,
+    flip_on_short_edge: bool = False,
+    outer_border: float = 2 * 3.0,  # 3mm outer border by default
 ) -> bool:
     """Beliebige Anzahl A6 Postkarten-PDFs zu mehrseitigem A3 PDF (2x4 Layout pro Seite)"""
     return combine_and_merge_double_sided_pdfs(
-        pdf_paths, output_path, layout=(2, 4), flip_on_short_edge=flip_on_short_edge
+        pdf_paths,
+        output_path,
+        layout=(2, 4),
+        flip_on_short_edge=flip_on_short_edge,
+        outer_border=outer_border,
     )
 
 
 def combine_multiple_a5_to_a4(
-    pdf_paths: List[str], output_path: str, flip_on_short_edge: bool = False
+    pdf_paths: List[str],
+    output_path: str,
+    flip_on_short_edge: bool = False,
+    outer_border: float = 0.0,
 ) -> bool:
     """Beliebige Anzahl A5 PDFs zu mehrseitigem A4 PDF (1x2 Layout pro Seite)"""
     return combine_and_merge_double_sided_pdfs(
-        pdf_paths, output_path, layout=(1, 2), flip_on_short_edge=flip_on_short_edge
+        pdf_paths,
+        output_path,
+        layout=(1, 2),
+        flip_on_short_edge=flip_on_short_edge,
+        outer_border=outer_border,
     )
 
 
@@ -629,6 +694,7 @@ if __name__ == "__main__":
         "merge_test_folder.pdf",
         layout=(2, 4),
         flip_on_short_edge=False,
+        outer_border=3 * 2,  # 5mm outer border
     )
 
     # Layout-Beispiele anzeigen
