@@ -5,8 +5,6 @@ from typing import List, Tuple, Optional
 import copy
 
 
-
-
 def combine_and_merge_double_sided_pdfs(
     pdf_paths: List[str],
     output_path: str,
@@ -31,31 +29,32 @@ def combine_and_merge_double_sided_pdfs(
     Returns:
         bool: True wenn erfolgreich, False bei Fehler
     """
-    
+
+    double_singlePagesites = False
     try:
         cols, rows = layout
         pages_per_grid = cols * rows
-        
+
         if not pdf_paths:
             print("Fehler: Keine PDF-Pfade angegeben")
             return False
-        
+
         total_pdfs = len(pdf_paths)
         grids_needed = (total_pdfs + pages_per_grid - 1) // pages_per_grid  # Aufrunden
-        
+
         print(f"Layout: {cols}x{rows} = {pages_per_grid} PDFs pro Grid")
         print(f"Gesamt PDFs: {total_pdfs}")
         print(f"Benötigte Grids: {grids_needed}")
         print(f"Output wird {grids_needed * 2} Seiten haben")
-        
+
         # Alle PDFs laden und validieren
         all_front_pages = []
         all_back_pages = []
-        
+
         # Referenzgröße aus erstem PDF ermitteln
         reference_width = None
         reference_height = None
-        
+
         for i, pdf_path in enumerate(pdf_paths):
             if not os.path.exists(pdf_path):
                 print(f"Warnung: PDF nicht gefunden: {pdf_path}")
@@ -67,60 +66,81 @@ def combine_and_merge_double_sided_pdfs(
                 print(f"Warnung: PDF {pdf_path} hat keine Seiten")
                 continue
             elif len(reader.pages) == 1:
-                print(f"Info: PDF {pdf_path} hat nur 1 Seite, verwende diese als Vorder- und Rückseite")
+                print(f"Info: PDF {pdf_path} hat nur 1 Seite")
+
                 front_page = reader.pages[0]
-                back_page = reader.pages[0]
+
+                if double_singlePagesites:
+                    back_page = reader.pages[0]
+                else:
+                    if reference_width is None:
+                        reference_height = float(reader.pages[0].mediabox.height)
+                        reference_width = float(reader.pages[0].mediabox.width)
+                    back_page = PageObject.create_blank_page(
+                        width=reference_width, height=reference_height
+                    )
+
             else:
                 front_page = reader.pages[0]
                 back_page = reader.pages[1]
                 if len(reader.pages) > 2:
-                    print(f"Info: PDF {pdf_path} hat {len(reader.pages)} Seiten, verwende nur die ersten 2")
+                    print(
+                        f"Info: PDF {pdf_path} hat {len(reader.pages)} Seiten, verwende nur die ersten 2"
+                    )
 
             # Referenzgröße beim ersten gültigen PDF setzen
             if reference_width is None:
                 reference_width = float(front_page.mediabox.width)
                 reference_height = float(front_page.mediabox.height)
-                print(f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points")
+                print(
+                    f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points"
+                )
 
             all_front_pages.append(front_page)
             all_back_pages.append(back_page)
-        
+
         if not all_front_pages:
             print("Fehler: Keine gültigen PDFs gefunden")
             return False
-        
+
         # Ausgabegröße berechnen
         output_width = reference_width * cols
         output_height = reference_height * rows
-        
+
         print(f"Ausgabegröße: {output_width:.1f} x {output_height:.1f} points")
-        
+
         # Flip-Logik bestimmen (aus der ursprünglichen Funktion übernommen)
         is_output_wider_than_tall = output_width > output_height
         effective_flip_on_short_edge = flip_on_short_edge
-        
+
         if not is_output_wider_than_tall:
             effective_flip_on_short_edge = not flip_on_short_edge
-            print(f"Hochformat erkannt ({output_width:.0f}x{output_height:.0f}) - Flip-Logik angepasst")
+            print(
+                f"Hochformat erkannt ({output_width:.0f}x{output_height:.0f}) - Flip-Logik angepasst"
+            )
         else:
-            print(f"Querformat erkannt ({output_width:.0f}x{output_height:.0f}) - Standard Flip-Logik")
-        
+            print(
+                f"Querformat erkannt ({output_width:.0f}x{output_height:.0f}) - Standard Flip-Logik"
+            )
+
         print(f"Original flip_on_short_edge: {flip_on_short_edge}")
         print(f"Effektive flip_on_short_edge: {effective_flip_on_short_edge}")
-        
+
         writer = PdfWriter()
-        
+
         # Für jedes benötigte Grid ein Seitenpaar erstellen
         for grid_index in range(grids_needed):
             start_pdf_index = grid_index * pages_per_grid
             end_pdf_index = min(start_pdf_index + pages_per_grid, len(all_front_pages))
-            
-            print(f"\nErstelle Grid {grid_index + 1}/{grids_needed} (PDFs {start_pdf_index + 1}-{end_pdf_index})")
-            
+
+            print(
+                f"\nErstelle Grid {grid_index + 1}/{grids_needed} (PDFs {start_pdf_index + 1}-{end_pdf_index})"
+            )
+
             # PDFs für dieses Grid extrahieren
             grid_front_pages = all_front_pages[start_pdf_index:end_pdf_index]
             grid_back_pages = all_back_pages[start_pdf_index:end_pdf_index]
-            
+
             # Mit leeren Seiten auffüllen falls nötig
             while len(grid_front_pages) < pages_per_grid:
                 empty_page = PageObject.create_blank_page(
@@ -129,7 +149,7 @@ def combine_and_merge_double_sided_pdfs(
                 grid_front_pages.append(empty_page)
                 grid_back_pages.append(empty_page)
                 print(f"Leere Seite hinzugefügt für Position {len(grid_front_pages)}")
-            
+
             # Vorderseite für dieses Grid erstellen
             front_output_page = create_grid_page_front(
                 grid_front_pages,
@@ -138,7 +158,7 @@ def combine_and_merge_double_sided_pdfs(
                 (reference_width, reference_height),
             )
             writer.add_page(front_output_page)
-            
+
             # Rückseite für dieses Grid erstellen
             back_output_page = create_grid_page_back(
                 grid_back_pages,
@@ -148,19 +168,27 @@ def combine_and_merge_double_sided_pdfs(
                 effective_flip_on_short_edge,
             )
             writer.add_page(back_output_page)
-        
+
         # PDF speichern
         with open(output_path, "wb") as output_file:
             writer.write(output_file)
-        
+
         print(f"\nMehrseitiges doppelseitiges PDF erfolgreich erstellt: {output_path}")
-        print(f"- {grids_needed} Grid(s) mit je {pages_per_grid} PDFs im {cols}x{rows} Layout")
-        print(f"- Insgesamt {grids_needed * 2} Seiten ({grids_needed} Vorderseiten, {grids_needed} Rückseiten)")
+        print(
+            f"- {grids_needed} Grid(s) mit je {pages_per_grid} PDFs im {cols}x{rows} Layout"
+        )
+        print(
+            f"- Insgesamt {grids_needed * 2} Seiten ({grids_needed} Vorderseiten, {grids_needed} Rückseiten)"
+        )
         print(f"- Verarbeitete PDFs: {len(all_front_pages)}")
-        print(f"- Wendeseite (ursprünglich): {'Kurze Seite' if flip_on_short_edge else 'Lange Seite'}")
-        print(f"- Wendeseite (effektiv): {'Kurze Seite' if effective_flip_on_short_edge else 'Lange Seite'}")
+        print(
+            f"- Wendeseite (ursprünglich): {'Kurze Seite' if flip_on_short_edge else 'Lange Seite'}"
+        )
+        print(
+            f"- Wendeseite (effektiv): {'Kurze Seite' if effective_flip_on_short_edge else 'Lange Seite'}"
+        )
         return True
-        
+
     except Exception as e:
         print(f"Fehler beim Kombinieren der PDFs: {str(e)}")
         return False
@@ -586,6 +614,23 @@ def combine_multiple_a5_to_a4(
 
 
 if __name__ == "__main__":
+
+    # test with folder
+    folder_path = r"C:\Users\gjm\Downloads\printing\t"
+    # load all pdf files from folder
+    extended_pdf_files = [
+        os.path.join(folder_path, f)
+        for f in os.listdir(folder_path)
+        if f.lower().endswith(".pdf")
+    ]
+
+    success = combine_and_merge_double_sided_pdfs(
+        extended_pdf_files,
+        "merge_test_folder.pdf",
+        layout=(2, 4),
+        flip_on_short_edge=False,
+    )
+
     # Layout-Beispiele anzeigen
     print("Layout-Beispiele für doppelseitigen Druck:")
     print_layout_example((2, 2), flip_on_short_edge=False)  # 2x2 Layout, lange Seite
@@ -639,8 +684,9 @@ if __name__ == "__main__":
     # Test mit 10 PDFs (wird 3 Seiten erstellen: 4+4+2 PDFs)
     extended_pdf_files = pdf_files + [
         r"Examples/postcard9.pdf",
-        r"Examples/postcard10.pdf"
+        r"Examples/postcard10.pdf",
     ]
+
     success = combine_and_merge_double_sided_pdfs(
         extended_pdf_files,
         "Examples/extended_multipage_postcards.pdf",
