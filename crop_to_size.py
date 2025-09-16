@@ -1413,28 +1413,35 @@ def process_pdf_for_print(
                 print(f"\nProcessing page {i + 1}:")
 
                 current_width_mm, current_height_mm = get_page_dimensions_in_mm(page)
+                target_width_mm_page = target_width_mm
+                target_height_mm_page = target_height_mm
+                target_width_mm_with_bleeding_page = target_width_mm_with_bleeding
+                target_height_mm_with_bleeding_page = target_height_mm_with_bleeding
 
                 if enable_rotation and should_rotate(
                     current_width_mm,
                     current_height_mm,
-                    target_width_mm,
-                    target_height_mm,
+                    target_width_mm_page,
+                    target_height_mm_page,
                 ):
                     print("rotatting page for better fit detected")
-                    target_height_mm, target_width_mm = (
-                        target_width_mm,
-                        target_height_mm,
+                    target_height_mm_page, target_width_mm_page = (
+                        target_width_mm_page,
+                        target_height_mm_page,
                     )
-                    target_height_mm_with_bleeding, target_width_mm_with_bleeding = (
-                        target_width_mm_with_bleeding,
-                        target_height_mm_with_bleeding,
+                    (
+                        target_height_mm_with_bleeding_page,
+                        target_width_mm_with_bleeding_page,
+                    ) = (
+                        target_width_mm_with_bleeding_page,
+                        target_height_mm_with_bleeding_page,
                     )
                     page = page.rotate(90)  # TODO ask if nescessary
 
                     # if page is larger than target size, scale down to target size
                 scale_factor = max(
-                    target_width_mm / current_width_mm,
-                    target_height_mm / current_height_mm,
+                    target_width_mm_page / current_width_mm,
+                    target_height_mm_page / current_height_mm,
                 )
                 if scale_factor < 1.0:
                     print("Scaling page down to fit target size")
@@ -1442,14 +1449,14 @@ def process_pdf_for_print(
 
                 processed_page = create_smart_borders_scaled(
                     page=page,
-                    target_width_mm=target_width_mm,
-                    target_height_mm=target_height_mm,
+                    target_width_mm=target_width_mm_page,
+                    target_height_mm=target_height_mm_page,
                     smart_border_mode="scaled",
                 )
                 processed_page = create_smart_borders_scaled(
                     page=processed_page,
-                    target_width_mm=target_width_mm_with_bleeding,
-                    target_height_mm=target_height_mm_with_bleeding,
+                    target_width_mm=target_width_mm_with_bleeding_page,
+                    target_height_mm=target_height_mm_with_bleeding_page,
                     smart_border_mode="unscaled",
                 )
                 # processed_page.rotate(90)
@@ -1654,5 +1661,15 @@ def test_smart_borders_comparison():
 
 if __name__ == "__main__":
     # test_scaling()
-    test_smart_borders_comparison()
+    # test_smart_borders_comparison()
     # main()
+
+    process_pdf_for_print(
+        input_path=r"C:\Users\gjm\Downloads\c06cf007-aa4b-4f3a-a418-809bdd212531.pdf",
+        # input_path=r"C:\Users\gjm\Downloads\c06cf007-aa4b-4f3a-a418-809bdd212531_inverted.pdf",
+        output_path=r"C:\Users\gjm\Downloads\test_output_scaling_unscaled.pdf",
+        target_width_mm=148 + 3,
+        target_height_mm=105 + 3,
+        crop_to_fill=False,
+        enable_rotation=True,
+    )
