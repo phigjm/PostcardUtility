@@ -135,6 +135,7 @@ def generate_postcard(
     border_thickness=5,
     show_debug_lines=False,
     message_area_ratio=0.5,  # Anteil des Messagebereichs (z.B. 0.6 für 3/5 links)
+    auto_rotate_image=True,
 ):
     """
     Generate a postcard PDF in landscape format.
@@ -178,6 +179,10 @@ def generate_postcard(
 
     # --- FRONT SIDE ---
     img = Image.open(image_path)
+    # Automatisch in Landscape drehen, falls das Bild im Hochformat ist
+    if auto_rotate_image and img.height > img.width:
+        img = img.rotate(90, expand=True)
+
     img_ratio = img.width / img.height
     page_ratio = width / height
 
@@ -364,6 +369,11 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
 """
     # print(message)
 
+    message = "sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfa"
+    message += message + message + message + message + message  # Test very long message
+    message += message + message + message + message + message  # Test very long message
+
+    print("längth message", len(message))
     folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\out\\"
 
     generate_postcard(
