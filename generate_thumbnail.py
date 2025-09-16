@@ -19,6 +19,8 @@ def generate_pdf_thumbnail(pdf_path, thumbnail_path, thumbnail_width=200):
 
     # Save the thumbnail image
     pix.save(thumbnail_path)
+    doc.close()
+    print("Thumbnail saved to", thumbnail_path)
 
 
 # Example usage
