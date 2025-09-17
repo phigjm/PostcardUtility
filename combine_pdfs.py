@@ -1,6 +1,7 @@
 from pypdf import PdfReader, PdfWriter, PageObject, Transformation
 from pypdf.generic import RectangleObject
 import os
+import math
 from typing import List, Tuple, Optional, Union
 import copy
 
@@ -13,6 +14,9 @@ def combine_and_merge_double_sided_pdfs(
     outer_border: Union[
         float, Tuple[float, float]
     ] = 0.0,  # Border in mm around the entire combined page
+    flip_card_on: Optional[
+        str
+    ] = "Lange Seite",  # "Lange Seite" or "Kurze Seite" or None
 ) -> bool:
     """
     Kombiniert eine beliebige Anzahl von doppelseitigen PDFs in einem Grid-Layout.
@@ -30,6 +34,7 @@ def combine_and_merge_double_sided_pdfs(
         flip_on_short_edge: Falls True, wird für kurze Seite gespiegelt; Falls False, für lange Seite (Standard)
         outer_border: Border in mm around the entire combined page (default: 0.0)
                      Kann als float (gleichmäßig) oder Tuple[float, float] (x, y) angegeben werden
+        flip_card_on: Optional card rotation: "Lange Seite" oder "Kurze Seite" (rotiert Vorderseiten um 180°)
 
     Returns:
         bool: True wenn erfolgreich, False bei Fehler
@@ -152,6 +157,20 @@ def combine_and_merge_double_sided_pdfs(
         print(f"Original flip_on_short_edge: {flip_on_short_edge}")
         print(f"Effektive flip_on_short_edge: {effective_flip_on_short_edge}")
 
+        # Bestimmen ob Karten gedreht werden sollen
+        should_flip_cards = False
+        if flip_card_on == "Kurze Seite" and effective_flip_on_short_edge:
+            should_flip_cards = True
+        elif flip_card_on == "Lange Seite" and not effective_flip_on_short_edge:
+            should_flip_cards = True
+
+        if flip_card_on:
+            print(
+                f"Karten-Rotation: {flip_card_on} - {'Aktiviert' if should_flip_cards else 'Deaktiviert'}"
+            )
+        else:
+            print("Karten-Rotation: Deaktiviert")
+
         writer = PdfWriter()
 
         # Für jedes benötigte Grid ein Seitenpaar erstellen
@@ -183,6 +202,7 @@ def combine_and_merge_double_sided_pdfs(
                 (output_width, output_height),
                 (reference_width, reference_height),
                 (border_x_points, border_y_points),
+                should_flip_cards,
             )
             writer.add_page(front_output_page)
 
@@ -228,6 +248,9 @@ def combine_double_sided_pdfs(
     layout: Tuple[int, int] = (2, 2),
     flip_on_short_edge: bool = False,
     outer_border: Union[float, Tuple[float, float]] = 0.0,
+    flip_card_on: Optional[
+        str
+    ] = "Lange Seite",  # "Lange Seite" or "Kurze Seite" or None
 ) -> bool:
     """
     Kombiniert mehrere doppelseitige PDFs in einem Grid-Layout.
@@ -244,6 +267,7 @@ def combine_double_sided_pdfs(
         flip_on_short_edge: Falls True, wird für kurze Seite gespiegelt; Falls False, für lange Seite (Standard)
         outer_border: Border in mm around the entire combined page (default: 0.0)
                      Kann als float (gleichmäßig) oder Tuple[float, float] (x, y) angegeben werden
+        flip_card_on: Optional card rotation: "Lange Seite" oder "Kurze Seite" (rotiert Vorderseiten um 180°)
 
     Returns:
         bool: True wenn erfolgreich, False bei Fehler
@@ -362,6 +386,20 @@ def combine_double_sided_pdfs(
         print(f"Original flip_on_short_edge: {flip_on_short_edge}")
         print(f"Effektive flip_on_short_edge: {effective_flip_on_short_edge}")
 
+        # Bestimmen ob Karten gedreht werden sollen
+        should_flip_cards = False
+        if flip_card_on == "Kurze Seite" and effective_flip_on_short_edge:
+            should_flip_cards = True
+        elif flip_card_on == "Lange Seite" and not effective_flip_on_short_edge:
+            should_flip_cards = True
+
+        if flip_card_on:
+            print(
+                f"Karten-Rotation: {flip_card_on} - {'Aktiviert' if should_flip_cards else 'Deaktiviert'}"
+            )
+        else:
+            print("Karten-Rotation: Deaktiviert")
+
         writer = PdfWriter()
 
         # Seite 1: Alle Vorderseiten
@@ -371,6 +409,7 @@ def combine_double_sided_pdfs(
             (output_width, output_height),
             (reference_width, reference_height),
             (border_x_points, border_y_points),
+            should_flip_cards,
         )
         writer.add_page(front_output_page)
 
@@ -411,6 +450,7 @@ def create_grid_page_front(
     output_size: Tuple[float, float],
     cell_size: Tuple[float, float],
     border_offset: Union[float, Tuple[float, float]] = 0.0,
+    flip_cards: bool = False,
 ) -> PageObject:
     """
     Erstellt eine Vorderseite mit den gegebenen Seiten in einem Grid-Layout.
@@ -423,6 +463,7 @@ def create_grid_page_front(
         cell_size: (width, height) einer einzelnen Zelle
         border_offset: Offset in points for outer border
                       Kann als float (gleichmäßig) oder Tuple[float, float] (x, y) angegeben werden
+        flip_cards: Falls True, werden die Karten um 180° gedreht
 
     Returns:
         PageObject: Die erstellte Vorderseite
@@ -453,13 +494,39 @@ def create_grid_page_front(
                 y_offset = border_y_offset + ((rows - 1 - row) * cell_height)
 
                 print(
-                    f"Vorderseite: Platziere Seite {page_index + 1} an Position ({col}, {row}) -> Offset: ({x_offset:.1f}, {y_offset:.1f})"
+                    f"Vorderseite: Platziere Seite {page_index + 1} an Position ({col}, {row}) -> Offset: ({x_offset:.1f}, {y_offset:.1f}){' (180° gedreht)' if flip_cards else ''}"
                 )
 
                 source_page = pages[page_index]
-                output_page.merge_transformed_page(
-                    source_page, Transformation().translate(tx=x_offset, ty=y_offset)
-                )
+
+                if flip_cards:
+                    # Seite um 180° drehen und an Position platzieren
+                    print("flip cards")
+                    # Rotation um 180° um den Mittelpunkt der Seite
+                    page_width = float(source_page.mediabox.width)
+                    page_height = float(source_page.mediabox.height)
+                    center_x = page_width / 2
+                    center_y = page_height / 2
+
+                    # Kombiniere Rotation (180°) und Translation
+                    transformation = (
+                        Transformation()
+                        .translate(
+                            tx=-center_x, ty=-center_y
+                        )  # Zum Ursprung verschieben
+                        .rotate(180)  # Um 180° rotieren
+                        .translate(
+                            tx=center_x, ty=center_y
+                        )  # Zurück zur Mitte verschieben
+                        .translate(tx=x_offset, ty=y_offset)
+                    )  # An finale Position verschieben
+                else:
+                    # Nur Translation ohne Rotation
+                    transformation = Transformation().translate(
+                        tx=x_offset, ty=y_offset
+                    )
+
+                output_page.merge_transformed_page(source_page, transformation)
 
     return output_page
 
@@ -580,7 +647,7 @@ def create_grid_page(
     Returns:
         PageObject: Die erstellte Seite
     """
-    return create_grid_page_front(pages, layout, output_size, cell_size)
+    return create_grid_page_front(pages, layout, output_size, cell_size, 0.0, False)
 
 
 def print_layout_example(
@@ -638,6 +705,7 @@ def combine_a6_postcards_to_a4(
     output_path: str,
     flip_on_short_edge: bool = False,
     outer_border: Union[float, Tuple[float, float]] = 0.0,
+    flip_card_on: Optional[str] = "Lange Seite",
 ) -> bool:
     """4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2 Layout)"""
     return combine_double_sided_pdfs(
@@ -646,6 +714,7 @@ def combine_a6_postcards_to_a4(
         layout=(2, 2),
         flip_on_short_edge=flip_on_short_edge,
         outer_border=outer_border,
+        flip_card_on=flip_card_on,
     )
 
 
@@ -655,6 +724,7 @@ def combine_a6_postcards_to_a3(
     flip_on_short_edge: bool = False,
     outer_border: Union[float, Tuple[float, float]] = 2
     * 3.0,  # 3mm outer border by default
+    flip_card_on: Optional[str] = "Lange Seite",
 ) -> bool:
     """8 A6 Postkarten-PDFs zu 1 A3 PDF (2x4 Layout)"""
     return combine_double_sided_pdfs(
@@ -663,6 +733,7 @@ def combine_a6_postcards_to_a3(
         layout=(2, 4),
         flip_on_short_edge=flip_on_short_edge,
         outer_border=outer_border,
+        flip_card_on=flip_card_on,
     )
 
 
@@ -671,6 +742,7 @@ def combine_a5_to_a4(
     output_path: str,
     flip_on_short_edge: bool = False,
     outer_border: Union[float, Tuple[float, float]] = 0.0,
+    flip_card_on: Optional[str] = "Lange Seite",
 ) -> bool:
     """2 A5 PDFs zu 1 A4 PDF (1x2 Layout)"""
     return combine_double_sided_pdfs(
@@ -679,6 +751,7 @@ def combine_a5_to_a4(
         layout=(1, 2),
         flip_on_short_edge=flip_on_short_edge,
         outer_border=outer_border,
+        flip_card_on=flip_card_on,
     )
 
 
@@ -688,6 +761,7 @@ def combine_multiple_a6_postcards_to_a4(
     output_path: str,
     flip_on_short_edge: bool = False,
     outer_border: Union[float, Tuple[float, float]] = 0.0,
+    flip_card_on: Optional[str] = "Lange Seite",
 ) -> bool:
     """Beliebige Anzahl A6 Postkarten-PDFs zu mehrseitigem A4 PDF (2x2 Layout pro Seite)"""
     return combine_and_merge_double_sided_pdfs(
@@ -696,6 +770,7 @@ def combine_multiple_a6_postcards_to_a4(
         layout=(2, 2),
         flip_on_short_edge=flip_on_short_edge,
         outer_border=outer_border,
+        flip_card_on=flip_card_on,
     )
 
 
@@ -705,6 +780,7 @@ def combine_multiple_a6_postcards_to_a3(
     flip_on_short_edge: bool = False,
     outer_border: Union[float, Tuple[float, float]] = 2
     * 3.0,  # 3mm outer border by default
+    flip_card_on: Optional[str] = "Lange Seite",
 ) -> bool:
     """Beliebige Anzahl A6 Postkarten-PDFs zu mehrseitigem A3 PDF (2x4 Layout pro Seite)"""
     return combine_and_merge_double_sided_pdfs(
@@ -713,6 +789,7 @@ def combine_multiple_a6_postcards_to_a3(
         layout=(2, 4),
         flip_on_short_edge=flip_on_short_edge,
         outer_border=outer_border,
+        flip_card_on=flip_card_on,
     )
 
 
@@ -721,6 +798,7 @@ def combine_multiple_a5_to_a4(
     output_path: str,
     flip_on_short_edge: bool = False,
     outer_border: Union[float, Tuple[float, float]] = 0.0,
+    flip_card_on: Optional[str] = "Lange Seite",
 ) -> bool:
     """Beliebige Anzahl A5 PDFs zu mehrseitigem A4 PDF (1x2 Layout pro Seite)"""
     return combine_and_merge_double_sided_pdfs(
@@ -729,6 +807,7 @@ def combine_multiple_a5_to_a4(
         layout=(1, 2),
         flip_on_short_edge=flip_on_short_edge,
         outer_border=outer_border,
+        flip_card_on=flip_card_on,
     )
 
 
@@ -746,10 +825,13 @@ if __name__ == "__main__":
     success = combine_and_merge_double_sided_pdfs(
         extended_pdf_files,
         "merge_test_folder.pdf",
-        layout=(2, 4),
+        layout=(2, 2),
         flip_on_short_edge=False,
-        outer_border=(3 * 2, 20),  # 5mm outer border
+        outer_border=3 * 2,  # 6mm outer border
+        flip_card_on="Lange Seite",  # Test der neuen Funktionalität
     )
+
+    exit()
 
     # Layout-Beispiele anzeigen
     print("Layout-Beispiele für doppelseitigen Druck:")
@@ -771,19 +853,31 @@ if __name__ == "__main__":
         r"Examples/postcard8.pdf",
     ]
 
-    # 4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2) - Wenden auf langer Seite
+    # 4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2) - Wenden auf langer Seite, Border als float
     success = combine_a6_postcards_to_a4(
-        pdf_files[:4], "Examples/postcards_a4_long_side.pdf", flip_on_short_edge=False
+        pdf_files[:4],
+        "Examples/postcards_a4_long_side.pdf",
+        flip_on_short_edge=False,
+        outer_border=5.0,
+        flip_card_on="Lange Seite",  # Test der Karten-Rotation
     )
     if success:
-        print("A4 Postkarten-PDF (lange Seite) erfolgreich erstellt!")
+        print(
+            "A4 Postkarten-PDF (lange Seite, Border=5mm, Karten gedreht) erfolgreich erstellt!"
+        )
 
-    # 4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2) - Wenden auf kurzer Seite
+    # 4 A6 Postkarten-PDFs zu 1 A4 PDF (2x2) - Wenden auf kurzer Seite, Border als Tupel
     success = combine_a6_postcards_to_a4(
-        pdf_files[:4], "Examples/postcards_a4_short_side.pdf", flip_on_short_edge=True
+        pdf_files[:4],
+        "Examples/postcards_a4_short_side.pdf",
+        flip_on_short_edge=True,
+        outer_border=(3.0, 7.0),
+        flip_card_on="Kurze Seite",  # Test der Karten-Rotation
     )
     if success:
-        print("A4 Postkarten-PDF (kurze Seite) erfolgreich erstellt!")
+        print(
+            "A4 Postkarten-PDF (kurze Seite, Border=(3mm,7mm), Karten gedreht) erfolgreich erstellt!"
+        )
 
     # Oder mit benutzerdefinierten Parametern
     success = combine_double_sided_pdfs(
@@ -791,6 +885,7 @@ if __name__ == "__main__":
         "Examples/custom_postcards.pdf",
         layout=(2, 2),
         flip_on_short_edge=False,
+        flip_card_on=None,  # Keine Karten-Rotation
     )
 
     # NEUE mehrseitige Funktion - alle 8 PDFs in einem mehrseitigen Dokument
