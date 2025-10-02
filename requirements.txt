@@ -1,4 +1,3 @@
-comtypes
 pypdf
 PyMuPDF
 numpy
@@ -6,3 +5,7 @@ numpy
 reportlab
 pillow
 requests
+
+qrcode[pil]
+
+comtypes; sys_platform == "win32"
