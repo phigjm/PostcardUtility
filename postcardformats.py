@@ -5,8 +5,14 @@ paper_Standards = {
     "A1": (594, 841),
     "A2": (420, 594),
     "A3": (297, 420),
+    "A3+": (111 * 4 + 3 * 2, 167 * 2 + 3 * 2),  # Including bleed area
+    # berechnet (A3: 297x420) + 2*3mm bleed + 2*111mm (A6 width) + 2*167mm (A6 height)
+    # A3+": (320, 450),  # Including bleed area
     "A4": (210, 297),
-    "A4+": (210, 297),
+    "A4+": (
+        225,
+        320,
+    ),  # is 15 and 23 mm larger than A4, or 3*3mmx 17mm larger than 2xA6+
     "A5": (148, 210),
     "A5+": (148, 210),
     "A6": (105, 148),
