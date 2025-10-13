@@ -6,8 +6,13 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 from PIL import Image
 import os
+from pypdf import PdfReader, PdfWriter
 
-from PostcardUtility.postcard_generate_text_side import generate_back_side
+# Try relative import first (when used as module), fall back to direct import (when run standalone)
+try:
+    from .postcard_generate_text_side import generate_back_side
+except ImportError:
+    from postcard_generate_text_side import generate_back_side
 
 
 def register_font(font_path):
@@ -112,9 +117,9 @@ def generate_postcard(
     auto_rotate_image=True,
 ):
     """
-    Generate a complete postcard PDF with front (image) and back (text) sides.
+    Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
 
-    :param image_path: Path to the front image
+    :param image_path: Path to the front image or PDF file
     :param message: Text message for back
     :param address: Address string (multiline)
     :param output_file: Output PDF filename
@@ -127,37 +132,88 @@ def generate_postcard(
     """
     width, height = page_size
 
-    # Register font
-    font_name = register_font(font_path)
+    # Check if input is a PDF or an image
+    is_pdf_input = image_path.lower().endswith(".pdf")
 
-    # Create canvas
-    c = canvas.Canvas(output_file, pagesize=page_size)
+    if is_pdf_input:
+        # PDF input: merge existing PDF with generated text side
+        # Register font
+        font_name = register_font(font_path)
 
-    # --- FRONT SIDE ---
-    generate_front_side(
-        c=c,
-        image_path=image_path,
-        page_size=page_size,
-        border_thickness=border_thickness,
-        auto_rotate_image=auto_rotate_image,
-    )
+        # Create temporary file for text side
+        import tempfile
 
-    c.showPage()
+        temp_text_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_text_pdf.close()
 
-    # --- BACK SIDE ---
-    generate_back_side(
-        c=c,
-        message=message,
-        address=address,
-        font_name=font_name,
-        page_size=page_size,
-        show_debug_lines=show_debug_lines,
-        message_area_ratio=message_area_ratio,
-    )
+        # Generate only the text side
+        c = canvas.Canvas(temp_text_pdf.name, pagesize=page_size)
+        generate_back_side(
+            c=c,
+            message=message,
+            address=address,
+            font_name=font_name,
+            page_size=page_size,
+            show_debug_lines=show_debug_lines,
+            message_area_ratio=message_area_ratio,
+        )
+        c.save()
 
-    # Save PDF
-    c.save()
-    print(f"Postcard generated successfully: {output_file}")
+        # Merge the input PDF with the generated text side
+        pdf_writer = PdfWriter()
+
+        # Add the front side from input PDF (first page only)
+        with open(image_path, "rb") as front_pdf_file:
+            pdf_reader = PdfReader(front_pdf_file)
+            pdf_writer.add_page(pdf_reader.pages[0])
+
+        # Add the text side
+        with open(temp_text_pdf.name, "rb") as text_pdf_file:
+            pdf_reader = PdfReader(text_pdf_file)
+            pdf_writer.add_page(pdf_reader.pages[0])
+
+        # Write the merged PDF
+        with open(output_file, "wb") as output_pdf_file:
+            pdf_writer.write(output_pdf_file)
+
+        # Clean up temporary file
+        os.unlink(temp_text_pdf.name)
+
+        print(f"Postcard generated successfully (PDF merged): {output_file}")
+
+    else:
+        # Image input: generate both sides
+        # Register font
+        font_name = register_font(font_path)
+
+        # Create canvas
+        c = canvas.Canvas(output_file, pagesize=page_size)
+
+        # --- FRONT SIDE ---
+        generate_front_side(
+            c=c,
+            image_path=image_path,
+            page_size=page_size,
+            border_thickness=border_thickness,
+            auto_rotate_image=auto_rotate_image,
+        )
+
+        c.showPage()
+
+        # --- BACK SIDE ---
+        generate_back_side(
+            c=c,
+            message=message,
+            address=address,
+            font_name=font_name,
+            page_size=page_size,
+            show_debug_lines=show_debug_lines,
+            message_area_ratio=message_area_ratio,
+        )
+
+        # Save PDF
+        c.save()
+        print(f"Postcard generated successfully: {output_file}")
 
 
 # Example usage
@@ -174,11 +230,13 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
     message += message + message + message + message + message  # Test very long message
 
     print("längth message", len(message))
-    folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\out\\"
+    folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\misc\tmp\test_cards\\"
 
+    # Example 1: Using an image as front side
     generate_postcard(
         # image_path=r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\i-311.jpeg",
-        image_path=r"C:\Users\gjm\Downloads\IMG_20250912_141205_773.jpg",
+        # image_path=r"C:\Users\gjm\Downloads\IMG_20250912_141205_773.jpg",
+        image_path=r"C:\Users\gjm\Downloads\dc_grafiktest (1).pdf",
         message=message,
         address="John Doe\n123 Main Street\n12345 Hometown\nCountry",
         output_file=folder + "postcard.pdf",
@@ -186,6 +244,16 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
         show_debug_lines=False,  # Set to True to show boundary lines for debugging
         border_thickness=0,
     )
+
+    # Example 2: Using a PDF as front side (will be merged with text side)
+    # generate_postcard(
+    #     image_path=r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\front_design.pdf",
+    #     message="Hello from the mountains!",
+    #     address="Jane Smith\n456 Oak Avenue\n54321 Cityville\nCountry",
+    #     output_file=folder + "postcard_with_pdf_front.pdf",
+    #     font_path=r"C:\Users\gjm\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+    #     show_debug_lines=False,
+    # )
 
     from postprocessor import process_postcard
 
