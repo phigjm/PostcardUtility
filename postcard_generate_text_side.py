@@ -28,7 +28,9 @@ _LOGGER = logging.getLogger(__name__)
 # Constants
 MIN_FONT_SIZE = 5
 DEFAULT_FONT_SIZE = 12
-EARLY_CHECK_THRESHOLD = 1.5  # Skip optimization if estimated height > threshold * available height
+EARLY_CHECK_THRESHOLD = (
+    1.5  # Skip optimization if estimated height > threshold * available height
+)
 
 
 def _strip_variation_selectors(s):
@@ -335,7 +337,7 @@ def wrap_text_to_width(text, max_width, canvas_obj, font_name, font_size):
 def _estimate_if_text_fits(message, max_width, available_height, font_name):
     """
     Quickly estimate if message can possibly fit at minimum font size.
-    
+
     :param message: Text message to estimate
     :param max_width: Maximum width available
     :param available_height: Maximum height available
@@ -345,11 +347,10 @@ def _estimate_if_text_fits(message, max_width, available_height, font_name):
     estimated_chars_per_line = int(max_width / (MIN_FONT_SIZE * 0.5))
     estimated_line_height = get_font_line_height(font_name, MIN_FONT_SIZE)
     estimated_lines = max(
-        len(message) / max(estimated_chars_per_line, 1), 
-        len(message.splitlines())
+        len(message) / max(estimated_chars_per_line, 1), len(message.splitlines())
     )
     estimated_min_height = estimated_lines * estimated_line_height
-    
+
     if estimated_min_height > available_height * EARLY_CHECK_THRESHOLD:
         _LOGGER.warning(
             f"Message is extremely long ({len(message)} chars, ~{int(estimated_lines)} lines). "
@@ -360,16 +361,11 @@ def _estimate_if_text_fits(message, max_width, available_height, font_name):
 
 
 def _find_optimal_font_size_for_paragraph(
-    message, 
-    max_width, 
-    available_height, 
-    font_name, 
-    min_font_size, 
-    max_font_size
+    message, max_width, available_height, font_name, min_font_size, max_font_size
 ):
     """
     Find optimal font size using binary search for Paragraph-based rendering.
-    
+
     :param message: Text message
     :param max_width: Maximum width
     :param available_height: Maximum height
@@ -389,7 +385,7 @@ def _find_optimal_font_size_for_paragraph(
         spaceBefore=0,
         spaceAfter=0,
     )
-    
+
     best_fitting_size = min_font_size
     text_fits = False
     search_min = min_font_size
@@ -426,11 +422,11 @@ def _find_optimal_font_size_for_text(
     canvas_obj,
     font_name,
     min_font_size,
-    max_font_size
+    max_font_size,
 ):
     """
     Find optimal font size using binary search for text-based rendering.
-    
+
     :param message: Text message
     :param max_width: Maximum width
     :param available_height: Maximum height
@@ -454,7 +450,9 @@ def _find_optimal_font_size_for_text(
         for line in lines:
             if line.strip():
                 test_wrapped_lines.extend(
-                    wrap_text_to_width(line, max_width, canvas_obj, font_name, test_font_size)
+                    wrap_text_to_width(
+                        line, max_width, canvas_obj, font_name, test_font_size
+                    )
                 )
             else:
                 test_wrapped_lines.append("")
@@ -473,16 +471,11 @@ def _find_optimal_font_size_for_text(
 
 
 def _truncate_paragraph_to_fit(
-    message,
-    max_width,
-    available_height,
-    font_name,
-    font_size,
-    style
+    message, max_width, available_height, font_name, font_size, style
 ):
     """
     Truncate message to fit available space using binary search.
-    
+
     :param message: Text message to truncate
     :param max_width: Maximum width
     :param available_height: Maximum height
@@ -535,7 +528,7 @@ def _truncate_paragraph_to_fit(
 def _draw_address_section(canvas_obj, address, divider_x, margin, height, font_name):
     """
     Draw the address section on the right side of the postcard.
-    
+
     :param canvas_obj: ReportLab canvas object
     :param address: Address text (multiline)
     :param divider_x: X position of divider line
@@ -559,7 +552,7 @@ def _draw_address_section(canvas_obj, address, divider_x, margin, height, font_n
 def _draw_stamp_box(canvas_obj, width, height, margin, font_name):
     """
     Draw the stamp box in the top right corner.
-    
+
     :param canvas_obj: ReportLab canvas object
     :param width: Page width
     :param height: Page height
@@ -576,9 +569,7 @@ def _draw_stamp_box(canvas_obj, width, height, margin, font_name):
     )
     canvas_obj.setFont(font_name, 8)
     canvas_obj.drawCentredString(
-        width - margin - stamp_size_x / 2, 
-        height - margin - stamp_size_y / 2, 
-        "STAMP"
+        width - margin - stamp_size_x / 2, height - margin - stamp_size_y / 2, "STAMP"
     )
 
 
@@ -592,11 +583,11 @@ def _draw_debug_lines(
     available_height,
     font_size,
     line_height,
-    font_name
+    font_name,
 ):
     """
     Draw debug boundary lines and labels.
-    
+
     :param canvas_obj: ReportLab canvas object
     :param width: Page width
     :param height: Page height
@@ -610,7 +601,7 @@ def _draw_debug_lines(
     """
     top_margin = margin
     bottom_margin = margin
-    
+
     canvas_obj.setStrokeColorRGB(1, 0, 0)
     canvas_obj.setLineWidth(0.5)
 
@@ -635,11 +626,17 @@ def _draw_debug_lines(
     canvas_obj.setFont(font_name, 6)
     canvas_obj.setFillColorRGB(1, 0, 0)
     canvas_obj.drawString(margin + 2, height - margin - 8, f"Margin: {margin/mm:.1f}mm")
-    canvas_obj.drawString(margin + max_width + 2, height - margin - 8, f"MaxWidth: {max_width/mm:.1f}mm")
-    canvas_obj.drawString(margin + 2, height - top_margin + 2, f"TopMargin: {top_margin/mm:.1f}mm")
+    canvas_obj.drawString(
+        margin + max_width + 2, height - margin - 8, f"MaxWidth: {max_width/mm:.1f}mm"
+    )
+    canvas_obj.drawString(
+        margin + 2, height - top_margin + 2, f"TopMargin: {top_margin/mm:.1f}mm"
+    )
     canvas_obj.drawString(margin + 2, margin + 2, f"FontSize: {font_size}pt")
     canvas_obj.drawString(margin + 2, margin + 12, f"LineHeight: {line_height:.1f}pt")
-    canvas_obj.drawString(divider_x + 2, height - margin - 8, f"DividerX: {divider_x/mm:.1f}mm")
+    canvas_obj.drawString(
+        divider_x + 2, height - margin - 8, f"DividerX: {divider_x/mm:.1f}mm"
+    )
 
     # Reset colors
     canvas_obj.setStrokeColorRGB(0, 0, 0)
@@ -709,7 +706,12 @@ def generate_back_side(
         if text_fits is None:
             # Run binary search optimization
             font_size, text_fits, para = _find_optimal_font_size_for_paragraph(
-                message, max_width, available_height, font_name, MIN_FONT_SIZE, DEFAULT_FONT_SIZE
+                message,
+                max_width,
+                available_height,
+                font_name,
+                MIN_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
             )
         else:
             # Skip optimization, use minimum font size
@@ -722,16 +724,16 @@ def generate_back_side(
                 f"Message is too long to fit on postcard even at minimum font size {MIN_FONT_SIZE}pt. "
                 f"Message will be truncated. Original length: {len(message)} characters."
             )
-            
+
             para, lines_used, total_lines = _truncate_paragraph_to_fit(
                 message, max_width, available_height, font_name, MIN_FONT_SIZE, style
             )
-            
+
             if lines_used < total_lines:
                 _LOGGER.warning(
                     f"Message truncated to {lines_used} of {total_lines} lines to fit on postcard."
                 )
-            
+
             font_size = MIN_FONT_SIZE
 
         # Ensure we have a paragraph to draw
@@ -745,8 +747,15 @@ def generate_back_side(
 
         # Draw the paragraph
         frame = Frame(
-            margin, bottom_margin, max_width, available_height,
-            leftPadding=0, bottomPadding=0, rightPadding=0, topPadding=0, showBoundary=0
+            margin,
+            bottom_margin,
+            max_width,
+            available_height,
+            leftPadding=0,
+            bottomPadding=0,
+            rightPadding=0,
+            topPadding=0,
+            showBoundary=0,
         )
         frame.addFromList([para], c)
         final_line_height = style.leading
@@ -756,7 +765,13 @@ def generate_back_side(
         if text_fits is None:
             # Run binary search optimization
             font_size, wrapped_lines = _find_optimal_font_size_for_text(
-                message, max_width, available_height, c, font_name, MIN_FONT_SIZE, DEFAULT_FONT_SIZE
+                message,
+                max_width,
+                available_height,
+                c,
+                font_name,
+                MIN_FONT_SIZE,
+                DEFAULT_FONT_SIZE,
             )
         else:
             # Skip optimization, use minimum font size
@@ -803,8 +818,16 @@ def generate_back_side(
     # === OPTIONAL DEBUG LINES ===
     if show_debug_lines:
         _draw_debug_lines(
-            c, width, height, margin, divider_x, max_width, 
-            available_height, font_size, final_line_height, font_name
+            c,
+            width,
+            height,
+            margin,
+            divider_x,
+            max_width,
+            available_height,
+            font_size,
+            final_line_height,
+            font_name,
         )
 
     # === DRAW DIVIDER LINE ===
