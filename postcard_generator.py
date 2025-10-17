@@ -50,6 +50,7 @@ def generate_front_side(
     page_size,
     border_thickness=5,
     auto_rotate_image=True,
+    compression_quality=85,
 ):
     """
     Generate the front side (image side) of a postcard on an existing canvas.
@@ -59,38 +60,88 @@ def generate_front_side(
     :param page_size: Page size tuple (width, height)
     :param border_thickness: Border size in points (default=5)
     :param auto_rotate_image: Automatically rotate portrait images to landscape (default=True)
+    :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
     """
     width, height = page_size
 
-    # Load and prepare image
+    # Load image metadata to check dimensions and format
     img = Image.open(image_path)
+    img_format = img.format
+    needs_processing = False
 
-    # Automatically rotate to landscape if image is in portrait
+    # Check if rotation is needed
     if auto_rotate_image and img.height > img.width:
-        img = img.rotate(90, expand=True)
+        needs_processing = True
 
+    # Check if cropping is needed
     img_ratio = img.width / img.height
     page_ratio = width / height
+    if abs(img_ratio - page_ratio) > 0.01:  # Tolerance for aspect ratio difference
+        needs_processing = True
 
-    # Crop to match aspect ratio
-    if img_ratio > page_ratio:
-        new_width = int(img.height * page_ratio)
-        left = (img.width - new_width) // 2
-        img = img.crop((left, 0, left + new_width, img.height))
+    # If image is JPEG and doesn't need processing, use it directly
+    if img_format == "JPEG" and not needs_processing:
+        # Direct JPEG embedding - keeps compression!
+        c.drawImage(
+            image_path,
+            border_thickness,
+            border_thickness,
+            width - 2 * border_thickness,
+            height - 2 * border_thickness,
+            preserveAspectRatio=True,
+            anchor="c",
+        )
     else:
-        new_height = int(img.width / page_ratio)
-        top = (img.height - new_height) // 2
-        img = img.crop((0, top, img.width, top + new_height))
+        # Image needs processing (rotate, crop, or format conversion)
 
-    # Draw image
-    img_reader = ImageReader(img)
-    c.drawImage(
-        img_reader,
-        border_thickness,
-        border_thickness,
-        width - 2 * border_thickness,
-        height - 2 * border_thickness,
-    )
+        # Automatically rotate to landscape if image is in portrait
+        if auto_rotate_image and img.height > img.width:
+            img = img.rotate(90, expand=True)
+            img_ratio = img.width / img.height
+
+        # Crop to match aspect ratio
+        if img_ratio > page_ratio:
+            new_width = int(img.height * page_ratio)
+            left = (img.width - new_width) // 2
+            img = img.crop((left, 0, left + new_width, img.height))
+        else:
+            new_height = int(img.width / page_ratio)
+            top = (img.height - new_height) // 2
+            img = img.crop((0, top, img.width, top + new_height))
+
+        # Save processed image as compressed JPEG to temp file
+        import tempfile
+
+        temp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        temp_img.close()
+
+        # Convert to RGB if necessary (for PNG with transparency, etc.)
+        if img.mode in ("RGBA", "LA", "P"):
+            # Create white background
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(
+                img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None
+            )
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Save with compression
+        img.save(temp_img.name, "JPEG", quality=compression_quality, optimize=True)
+
+        # Draw compressed image
+        c.drawImage(
+            temp_img.name,
+            border_thickness,
+            border_thickness,
+            width - 2 * border_thickness,
+            height - 2 * border_thickness,
+        )
+
+        # Clean up temp file
+        os.unlink(temp_img.name)
 
     # Draw white border
     if border_thickness > 0:
@@ -115,6 +166,7 @@ def generate_postcard(
     show_debug_lines=False,
     message_area_ratio=0.5,  # Anteil des Messagebereichs (z.B. 0.6 für 3/5 links)
     auto_rotate_image=True,
+    compression_quality=85,  # JPEG quality for image compression (1-100)
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -129,6 +181,7 @@ def generate_postcard(
     :param show_debug_lines: Whether to show debugging boundary lines (default=False)
     :param message_area_ratio: Ratio of message area width (default=0.5 for 50%)
     :param auto_rotate_image: Automatically rotate portrait images to landscape (default=True)
+    :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
     """
     width, height = page_size
 
@@ -196,6 +249,7 @@ def generate_postcard(
             page_size=page_size,
             border_thickness=border_thickness,
             auto_rotate_image=auto_rotate_image,
+            compression_quality=compression_quality,
         )
 
         c.showPage()
