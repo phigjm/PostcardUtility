@@ -525,7 +525,9 @@ def _truncate_paragraph_to_fit(
     return para, best_fit_lines, len(message_lines)
 
 
-def _draw_address_section(canvas_obj, address, divider_x, margin, height, font_name):
+def _draw_address_section(
+    canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True
+):
     """
     Draw the address section on the right side of the postcard.
 
@@ -535,18 +537,70 @@ def _draw_address_section(canvas_obj, address, divider_x, margin, height, font_n
     :param margin: Margin size
     :param height: Page height
     :param font_name: Font name
+    :param width: Page width
+    :param enable_emoji: Enable colored emoji support (default=True)
     """
     addr_x = divider_x + margin
-    canvas_obj.setFont(font_name, 12)
+    address_font_size = 12
 
-    address_lines = address.splitlines()
-    line_height = 14
-    total_address_height = len(address_lines) * line_height
-    addr_y = margin + 40 + total_address_height
+    # Check if address contains emojis
+    has_emojis = enable_emoji and bool(emoji.emoji_list(address))
 
-    for line in address_lines:
-        canvas_obj.drawString(addr_x, addr_y, line)
-        addr_y -= line_height
+    if has_emojis:
+        # Use Paragraph for emoji support
+        style = ParagraphStyle(
+            "AddressStyle",
+            fontName=font_name,
+            fontSize=address_font_size,
+            leading=get_font_line_height(font_name, address_font_size),
+            alignment=TA_LEFT,
+            leftIndent=0,
+            rightIndent=0,
+            spaceBefore=0,
+            spaceAfter=0,
+        )
+
+        # Process address with emoji support
+        processed_address = replace_emojis_with_images(address, address_font_size)
+        processed_address = escape_html_except_tags(processed_address)
+        processed_address = processed_address.replace("\n", "<br/>")
+
+        para = Paragraph(processed_address, style)
+
+        # Calculate available width for address
+        available_width = width - divider_x - 2 * margin
+
+        # Wrap and get height
+        w, h = para.wrap(available_width, height)
+
+        # Position address (starting from bottom + 40mm offset)
+        addr_y = margin + 40
+
+        # Draw using Frame
+        frame = Frame(
+            addr_x,
+            addr_y,
+            available_width,
+            h,
+            leftPadding=0,
+            bottomPadding=0,
+            rightPadding=0,
+            topPadding=0,
+            showBoundary=0,
+        )
+        frame.addFromList([para], canvas_obj)
+    else:
+        # Traditional text rendering without emojis
+        canvas_obj.setFont(font_name, address_font_size)
+
+        address_lines = address.splitlines()
+        line_height = 14
+        total_address_height = len(address_lines) * line_height
+        addr_y = margin + 40 + total_address_height
+
+        for line in address_lines:
+            canvas_obj.drawString(addr_x, addr_y, line)
+            addr_y -= line_height
 
 
 def _draw_stamp_box(canvas_obj, width, height, margin, font_name):
@@ -812,7 +866,9 @@ def generate_back_side(
         c.drawText(text_obj)
 
     # === DRAW ADDRESS AND STAMP ===
-    _draw_address_section(c, address, divider_x, margin, height, font_name)
+    _draw_address_section(
+        c, address, divider_x, margin, height, font_name, width, enable_emoji
+    )
     _draw_stamp_box(c, width, height, margin, font_name)
 
     # === OPTIONAL DEBUG LINES ===
