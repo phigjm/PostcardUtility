@@ -5,6 +5,7 @@ numpy
 reportlab
 pillow
 requests
+emoji
 
 qrcode[pil]
 

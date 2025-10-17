@@ -10,9 +10,9 @@ from pypdf import PdfReader, PdfWriter
 
 # Try relative import first (when used as module), fall back to direct import (when run standalone)
 try:
-    from .postcard_generate_text_side import generate_back_side
+    from .postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
 except ImportError:
-    from postcard_generate_text_side import generate_back_side
+    from postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
 
 
 def register_font(font_path):
@@ -167,6 +167,7 @@ def generate_postcard(
     message_area_ratio=0.5,  # Anteil des Messagebereichs (z.B. 0.6 für 3/5 links)
     auto_rotate_image=True,
     compression_quality=85,  # JPEG quality for image compression (1-100)
+    enable_emoji=True,  # Enable colored emoji support
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -182,8 +183,14 @@ def generate_postcard(
     :param message_area_ratio: Ratio of message area width (default=0.5 for 50%)
     :param auto_rotate_image: Automatically rotate portrait images to landscape (default=True)
     :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
+    :param enable_emoji: Enable colored emoji support (default=True)
     """
     width, height = page_size
+
+    # Set up emoji cache directory if emoji support is enabled
+    if enable_emoji:
+        emoji_cache_dir = os.path.join(os.path.dirname(__file__), ".emoji_cache")
+        set_emoji_cache_dir(emoji_cache_dir)
 
     # Check if input is a PDF or an image
     is_pdf_input = image_path.lower().endswith(".pdf")
@@ -209,6 +216,7 @@ def generate_postcard(
             page_size=page_size,
             show_debug_lines=show_debug_lines,
             message_area_ratio=message_area_ratio,
+            enable_emoji=enable_emoji,
         )
         c.save()
 
@@ -263,6 +271,7 @@ def generate_postcard(
             page_size=page_size,
             show_debug_lines=show_debug_lines,
             message_area_ratio=message_area_ratio,
+            enable_emoji=enable_emoji,
         )
 
         # Save PDF
@@ -279,9 +288,9 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
 """
     # print(message)
 
-    message = "sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfa"
+    message = "s❤️fad👀fasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfa"
     message += message + message + message + message + message  # Test very long message
-    message += message + message + message + message + message  # Test very long message
+    # message += message + message + message + message + message  # Test very long message
 
     print("längth message", len(message))
     folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\misc\tmp\test_cards\\"
