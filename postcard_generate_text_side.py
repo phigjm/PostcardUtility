@@ -167,6 +167,12 @@ def replace_emojis_with_images(text, font_size):
         start = item["match_start"]
         end = item["match_end"]
 
+        # Check if there's a variation selector (U+FE0F) immediately after the emoji
+        # and extend the end position to include it
+        actual_end = end
+        if actual_end < len(result) and ord(result[actual_end]) == 0xFE0F:
+            actual_end += 1
+
         img_path = get_emoji_image_path(emoji_char)
 
         if img_path:
@@ -183,8 +189,8 @@ def replace_emojis_with_images(text, font_size):
             # Fallback to the emoji character itself (will render as monochrome)
             replacement = emoji_char
 
-        # Replace this emoji occurrence
-        result = result[:start] + replacement + result[end:]
+        # Replace this emoji occurrence (including any trailing variation selector)
+        result = result[:start] + replacement + result[actual_end:]
 
     return result
 
