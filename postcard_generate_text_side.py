@@ -4,7 +4,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import Paragraph, Frame
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.enums import TA_LEFT
+from reportlab.lib.enums import TA_LEFT, TA_RIGHT
 import emoji
 import re
 import os
@@ -12,6 +12,24 @@ import urllib.request
 import urllib.error
 import logging
 from io import BytesIO
+from font_manager import get_arabic_font
+
+# Arabic text support
+try:
+    import arabic_reshaper
+    from bidi.algorithm import get_display
+
+    ARABIC_SUPPORT = True
+except ImportError:
+    ARABIC_SUPPORT = False
+
+_LOGGER = logging.getLogger(__name__)
+
+if not ARABIC_SUPPORT:
+    _LOGGER.warning(
+        "Arabic text support not available. Install 'arabic-reshaper' and 'python-bidi' "
+        "for proper Arabic text rendering: pip install arabic-reshaper python-bidi"
+    )
 
 
 # Cache directory for emoji images
@@ -31,6 +49,49 @@ DEFAULT_FONT_SIZE = 12
 EARLY_CHECK_THRESHOLD = (
     1.5  # Skip optimization if estimated height > threshold * available height
 )
+
+
+def contains_arabic(text):
+    """
+    Check if text contains Arabic characters.
+
+    :param text: Text to check
+    :return: True if text contains Arabic characters
+    """
+    # Arabic Unicode ranges:
+    # U+0600-U+06FF: Arabic
+    # U+0750-U+077F: Arabic Supplement
+    # U+08A0-U+08FF: Arabic Extended-A
+    # U+FB50-U+FDFF: Arabic Presentation Forms-A
+    # U+FE70-U+FEFF: Arabic Presentation Forms-B
+    arabic_pattern = re.compile(
+        r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]"
+    )
+    return bool(arabic_pattern.search(text))
+
+
+def process_arabic_text(text):
+    """
+    Process Arabic text for proper display (reshaping and bidi).
+
+    :param text: Text potentially containing Arabic
+    :return: Processed text ready for rendering
+    """
+    if not ARABIC_SUPPORT:
+        return text
+
+    if not contains_arabic(text):
+        return text
+
+    try:
+        # Reshape Arabic characters (connect letters properly)
+        reshaped_text = arabic_reshaper.reshape(text)
+        # Apply bidirectional algorithm for RTL display
+        bidi_text = get_display(reshaped_text)
+        return bidi_text
+    except Exception as e:
+        _LOGGER.warning(f"Failed to process Arabic text: {e}")
+        return text
 
 
 def _strip_variation_selectors(s):
@@ -148,6 +209,7 @@ def get_emoji_image_path(emoji_char, size=32):
 def replace_emojis_with_images(text, font_size):
     """
     Replace emoji characters in text with HTML img tags for colored emoji rendering.
+    Note: This function should be called BEFORE processing Arabic text with bidi algorithm.
 
     :param text: Text containing emojis
     :param font_size: Font size to match emoji size
@@ -195,30 +257,100 @@ def replace_emojis_with_images(text, font_size):
     return result
 
 
+def process_text_for_rendering(text, font_size, enable_emoji=True):
+    """
+    Process text for rendering, handling both emojis and Arabic text.
+
+    Order of operations:
+    1. Replace emojis with image tags (if enabled)
+    2. Process Arabic text for proper RTL display
+
+    :param text: Text to process
+    :param font_size: Font size for emoji sizing
+    :param enable_emoji: Enable emoji replacement
+    :return: Processed text ready for rendering
+    """
+    # First, replace emojis with images (before bidi processing)
+    if enable_emoji:
+        text = replace_emojis_with_images(text, font_size)
+
+    # Then process Arabic text for RTL display
+    # Note: HTML tags from emoji replacement are preserved
+    if contains_arabic(text):
+        # Split by HTML tags to preserve them
+        parts = re.split(r"(<img[^>]+>)", text)
+        processed_parts = []
+
+        for part in parts:
+            if part.startswith("<img"):
+                # Keep HTML tags as-is
+                processed_parts.append(part)
+            else:
+                # Process text parts for Arabic
+                processed_parts.append(process_arabic_text(part))
+
+        text = "".join(processed_parts)
+
+    return text
+
+
+def _wrap_arabic_spans_with_font(text, arabic_font_name):
+    """Wrap Arabic runs in the text with ReportLab <font name="..."> tags.
+
+    Expects plain text (no <img> tags). Returns text where Arabic
+    substrings are wrapped so Paragraph can render them with the Arabic font.
+    Note: Does NOT escape HTML - escaping should be done AFTER this function.
+    """
+    if not arabic_font_name:
+        return text
+
+    # Split by runs of Arabic and non-Arabic
+    parts = re.split(
+        r"("
+        + r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+"
+        + r")",
+        text,
+    )
+    out_parts = []
+    for part in parts:
+        if not part:
+            continue
+        if contains_arabic(part):
+            # Wrap Arabic text with font tags (no escaping here!)
+            out_parts.append(f'<font name="{arabic_font_name}">{part}</font>')
+        else:
+            out_parts.append(part)
+
+    return "".join(out_parts)
+
+
 def escape_html_except_tags(text):
     """
-    Escape HTML special characters but preserve <img> tags.
+    Escape HTML special characters but preserve <img> and <font> tags.
 
-    :param text: Text that may contain HTML entities and <img> tags
-    :return: Escaped text with <img> tags preserved
+    :param text: Text that may contain HTML entities, <img> tags, and <font> tags
+    :return: Escaped text with allowed tags preserved
     """
-    # First, temporarily replace <img> tags with placeholders
-    img_tags = []
+    # First, temporarily replace allowed tags with placeholders
+    allowed_tags = []
 
-    def save_img_tag(match):
-        img_tags.append(match.group(0))
-        return f"___IMG_TAG_{len(img_tags)-1}___"
+    def save_tag(match):
+        allowed_tags.append(match.group(0))
+        return f"___TAG_{len(allowed_tags)-1}___"
 
-    text = re.sub(r"<img[^>]+>", save_img_tag, text)
+    # Save <img> tags and <font> tags (both opening and closing)
+    text = re.sub(r"<img[^>]+>", save_tag, text)
+    text = re.sub(r"<font[^>]+>", save_tag, text)
+    text = re.sub(r"</font>", save_tag, text)
 
     # Escape HTML entities
     text = text.replace("&", "&amp;")
     text = text.replace("<", "&lt;")
     text = text.replace(">", "&gt;")
 
-    # Restore <img> tags
-    for i, tag in enumerate(img_tags):
-        text = text.replace(f"___IMG_TAG_{i}___", tag)
+    # Restore allowed tags
+    for i, tag in enumerate(allowed_tags):
+        text = text.replace(f"___TAG_{i}___", tag)
 
     return text
 
@@ -367,7 +499,13 @@ def _estimate_if_text_fits(message, max_width, available_height, font_name):
 
 
 def _find_optimal_font_size_for_paragraph(
-    message, max_width, available_height, font_name, min_font_size, max_font_size
+    message,
+    max_width,
+    available_height,
+    font_name,
+    min_font_size,
+    max_font_size,
+    alignment=TA_LEFT,
 ):
     """
     Find optimal font size using binary search for Paragraph-based rendering.
@@ -378,6 +516,7 @@ def _find_optimal_font_size_for_paragraph(
     :param font_name: Font name
     :param min_font_size: Minimum font size to try
     :param max_font_size: Maximum font size to try
+    :param alignment: Text alignment (TA_LEFT or TA_RIGHT)
     :return: (best_font_size, text_fits_completely, final_paragraph)
     """
     style = ParagraphStyle(
@@ -385,7 +524,7 @@ def _find_optimal_font_size_for_paragraph(
         fontName=font_name,
         fontSize=max_font_size,
         leading=get_font_line_height(font_name, max_font_size),
-        alignment=TA_LEFT,
+        alignment=alignment,
         leftIndent=0,
         rightIndent=0,
         spaceBefore=0,
@@ -403,7 +542,23 @@ def _find_optimal_font_size_for_paragraph(
         style.fontSize = test_font_size
         style.leading = get_font_line_height(font_name, test_font_size)
 
-        processed_message = replace_emojis_with_images(message, test_font_size)
+        processed_message = process_text_for_rendering(
+            message, test_font_size, enable_emoji=True
+        )
+
+        # Preserve <img> tags while wrapping Arabic text spans with Arabic font
+        arabic_font_name = get_arabic_font()
+        parts = re.split(r"(<img[^>]+>)", processed_message)
+        wrapped_parts = []
+        for p in parts:
+            if p.startswith("<img"):
+                wrapped_parts.append(p)
+            else:
+                # wrap Arabic spans inside this text part
+                wrapped = _wrap_arabic_spans_with_font(p, arabic_font_name)
+                wrapped_parts.append(wrapped)
+        processed_message = "".join(wrapped_parts)
+
         processed_message = escape_html_except_tags(processed_message)
         processed_message = processed_message.replace("\n", "<br/>")
 
@@ -502,7 +657,20 @@ def _truncate_paragraph_to_fit(
         mid_lines = (min_lines + max_lines) // 2
         truncated_message = "\n".join(message_lines[:mid_lines])
 
-        processed_message = replace_emojis_with_images(truncated_message, font_size)
+        processed_message = process_text_for_rendering(
+            truncated_message, font_size, enable_emoji=True
+        )
+        # Preserve <img> tags and wrap Arabic spans with Arabic font
+        arabic_font_name = get_arabic_font()
+        parts = re.split(r"(<img[^>]+>)", processed_message)
+        wrapped_parts = []
+        for p in parts:
+            if p.startswith("<img"):
+                wrapped_parts.append(p)
+            else:
+                wrapped_parts.append(_wrap_arabic_spans_with_font(p, arabic_font_name))
+        processed_message = "".join(wrapped_parts)
+
         processed_message = escape_html_except_tags(processed_message)
         processed_message = processed_message.replace("\n", "<br/>")
 
@@ -523,7 +691,18 @@ def _truncate_paragraph_to_fit(
     else:
         truncated_message = message
 
-    processed_message = replace_emojis_with_images(truncated_message, font_size)
+    processed_message = process_text_for_rendering(
+        truncated_message, font_size, enable_emoji=True
+    )
+    arabic_font_name = get_arabic_font()
+    parts = re.split(r"(<img[^>]+>)", processed_message)
+    wrapped_parts = []
+    for p in parts:
+        if p.startswith("<img"):
+            wrapped_parts.append(p)
+        else:
+            wrapped_parts.append(_wrap_arabic_spans_with_font(p, arabic_font_name))
+    processed_message = "".join(wrapped_parts)
     processed_message = escape_html_except_tags(processed_message)
     processed_message = processed_message.replace("\n", "<br/>")
     para = Paragraph(processed_message, style)
@@ -549,25 +728,44 @@ def _draw_address_section(
     addr_x = divider_x + margin
     address_font_size = 12
 
-    # Check if address contains emojis
+    # Check if address contains emojis or Arabic text
     has_emojis = enable_emoji and bool(emoji.emoji_list(address))
+    has_arabic = contains_arabic(address)
+    needs_paragraph = has_emojis or has_arabic
 
-    if has_emojis:
-        # Use Paragraph for emoji support
+    if needs_paragraph:
+        # Use Paragraph for emoji and/or Arabic support
+        # Use right alignment for Arabic text
+        alignment = TA_RIGHT if has_arabic else TA_LEFT
+
         style = ParagraphStyle(
             "AddressStyle",
             fontName=font_name,
             fontSize=address_font_size,
             leading=get_font_line_height(font_name, address_font_size),
-            alignment=TA_LEFT,
+            alignment=alignment,
             leftIndent=0,
             rightIndent=0,
             spaceBefore=0,
             spaceAfter=0,
         )
 
-        # Process address with emoji support
-        processed_address = replace_emojis_with_images(address, address_font_size)
+        # Process address with emoji and Arabic support
+        processed_address = process_text_for_rendering(
+            address, address_font_size, enable_emoji=enable_emoji
+        )
+
+        # Preserve <img> tags and wrap Arabic spans with Arabic font
+        arabic_font_name = get_arabic_font()
+        parts = re.split(r"(<img[^>]+>)", processed_address)
+        wrapped_parts = []
+        for p in parts:
+            if p.startswith("<img"):
+                wrapped_parts.append(p)
+            else:
+                wrapped_parts.append(_wrap_arabic_spans_with_font(p, arabic_font_name))
+        processed_address = "".join(wrapped_parts)
+
         processed_address = escape_html_except_tags(processed_address)
         processed_address = processed_address.replace("\n", "<br/>")
 
@@ -605,6 +803,12 @@ def _draw_address_section(
         addr_y = margin + 40 + total_address_height
 
         for line in address_lines:
+            if contains_arabic(line):
+                arabic_font_name = get_arabic_font()
+                canvas_obj.setFont(arabic_font_name, address_font_size)
+            else:
+                canvas_obj.setFont(font_name, address_font_size)
+
             canvas_obj.drawString(addr_x, addr_y, line)
             addr_y -= line_height
 
@@ -735,27 +939,33 @@ def generate_back_side(
     bottom_margin = margin
     available_height = height - top_margin - bottom_margin
 
-    # Check if message contains emojis
+    # Check if message contains emojis or Arabic text
     has_emojis = enable_emoji and bool(emoji.emoji_list(message))
+    has_arabic = contains_arabic(message)
+    needs_paragraph = has_emojis or has_arabic
 
     # Quick estimation check
     text_fits = _estimate_if_text_fits(message, max_width, available_height, font_name)
 
-    # === EMOJI MODE (Paragraph-based rendering) ===
-    if has_emojis:
+    # === PARAGRAPH MODE (for emoji and/or Arabic text) ===
+    if needs_paragraph:
         # Pre-cache all emoji images for performance
-        _LOGGER.debug("Pre-caching emoji images for message")
-        emoji_list = emoji.emoji_list(message)
-        for emoji_item in emoji_list:
-            get_emoji_image_path(emoji_item["emoji"])
+        if has_emojis:
+            _LOGGER.debug("Pre-caching emoji images for message")
+            emoji_list = emoji.emoji_list(message)
+            for emoji_item in emoji_list:
+                get_emoji_image_path(emoji_item["emoji"])
 
-        # Create base paragraph style
+        # Create base paragraph style with appropriate alignment
+        # Use right alignment for Arabic text
+        alignment = TA_RIGHT if has_arabic else TA_LEFT
+
         style = ParagraphStyle(
             "MessageStyle",
             fontName=font_name,
             fontSize=DEFAULT_FONT_SIZE,
             leading=get_font_line_height(font_name, DEFAULT_FONT_SIZE),
-            alignment=TA_LEFT,
+            alignment=alignment,
             leftIndent=0,
             rightIndent=0,
             spaceBefore=0,
@@ -772,6 +982,7 @@ def generate_back_side(
                 font_name,
                 MIN_FONT_SIZE,
                 DEFAULT_FONT_SIZE,
+                alignment=alignment,
             )
         else:
             # Skip optimization, use minimum font size
@@ -800,7 +1011,23 @@ def generate_back_side(
         if para is None:
             style.fontSize = font_size
             style.leading = get_font_line_height(font_name, font_size)
-            processed_message = replace_emojis_with_images(message, font_size)
+            processed_message = process_text_for_rendering(
+                message, font_size, enable_emoji=enable_emoji
+            )
+
+            # Wrap Arabic spans with Arabic font while preserving <img> tags
+            arabic_font_name = get_arabic_font()
+            parts = re.split(r"(<img[^>]+>)", processed_message)
+            wrapped_parts = []
+            for p in parts:
+                if p.startswith("<img"):
+                    wrapped_parts.append(p)
+                else:
+                    wrapped_parts.append(
+                        _wrap_arabic_spans_with_font(p, arabic_font_name)
+                    )
+            processed_message = "".join(wrapped_parts)
+
             processed_message = escape_html_except_tags(processed_message)
             processed_message = processed_message.replace("\n", "<br/>")
             para = Paragraph(processed_message, style)
@@ -841,9 +1068,19 @@ def generate_back_side(
             c.setFont(font_name, font_size)
             for line in lines:
                 if line.strip():
-                    wrapped_lines.extend(
-                        wrap_text_to_width(line, max_width, c, font_name, font_size)
-                    )
+                    # When wrapping text for canvas mode, treat Arabic lines specially
+                    if contains_arabic(line):
+                        # Use Arabic font for measurement and wrapping
+                        arabic_font_name = get_arabic_font()
+                        wrapped_lines.extend(
+                            wrap_text_to_width(
+                                line, max_width, c, arabic_font_name, font_size
+                            )
+                        )
+                    else:
+                        wrapped_lines.extend(
+                            wrap_text_to_width(line, max_width, c, font_name, font_size)
+                        )
                 else:
                     wrapped_lines.append("")
 
@@ -863,13 +1100,20 @@ def generate_back_side(
             if max_lines > 0:
                 wrapped_lines[-1] = wrapped_lines[-1] + " [...]"
 
-        # Draw text
-        text_obj = c.beginText(margin, height - margin - font_size)
-        text_obj.setFont(font_name, font_size)
-        text_obj.setLeading(final_line_height)
+        # Draw text (set font per-line depending on Arabic content)
+        y = height - margin - font_size
         for line in wrapped_lines:
-            text_obj.textLine(line)
-        c.drawText(text_obj)
+            if contains_arabic(line):
+                arabic_font_name = get_arabic_font()
+                c.setFont(arabic_font_name, font_size)
+            else:
+                c.setFont(font_name, font_size)
+
+            # drawString uses left-to-right origin; for Arabic canvas drawing we keep it
+            # simple - Paragraph mode handles rich RTL/reshaping. For canvas mode we
+            # draw the raw line (reshaped text should already be applied earlier).
+            c.drawString(margin, y, line)
+            y -= final_line_height
 
     # === DRAW ADDRESS AND STAMP ===
     _draw_address_section(
