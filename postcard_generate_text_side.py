@@ -12,7 +12,7 @@ import urllib.request
 import urllib.error
 import logging
 from io import BytesIO
-from font_manager import get_arabic_font
+from font_manager import get_arabic_font, get_cjk_font
 
 # Arabic text support
 try:
@@ -68,6 +68,29 @@ def contains_arabic(text):
         r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]"
     )
     return bool(arabic_pattern.search(text))
+
+
+def contains_cjk(text):
+    """
+    Check if text contains CJK (Chinese, Japanese, Korean) characters.
+
+    :param text: Text to check
+    :return: True if text contains CJK characters
+    """
+    # CJK Unicode ranges:
+    # U+4E00-U+9FFF: CJK Unified Ideographs (Chinese, Japanese, Korean)
+    # U+3400-U+4DBF: CJK Unified Ideographs Extension A
+    # U+20000-U+2A6DF: CJK Unified Ideographs Extension B
+    # U+2A700-U+2B73F: CJK Unified Ideographs Extension C
+    # U+2B740-U+2B81F: CJK Unified Ideographs Extension D
+    # U+3040-U+309F: Hiragana (Japanese)
+    # U+30A0-U+30FF: Katakana (Japanese)
+    # U+AC00-U+D7AF: Hangul Syllables (Korean)
+    # U+1100-U+11FF: Hangul Jamo (Korean)
+    cjk_pattern = re.compile(
+        r"[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u1100-\u11FF]"
+    )
+    return bool(cjk_pattern.search(text))
 
 
 def process_arabic_text(text):
@@ -294,34 +317,53 @@ def process_text_for_rendering(text, font_size, enable_emoji=True):
     return text
 
 
+def _wrap_special_text_with_fonts(text, arabic_font_name=None, cjk_font_name=None):
+    """Wrap Arabic and CJK runs in the text with ReportLab <font name="..."> tags.
+
+    Expects plain text (no <img> tags). Returns text where Arabic and CJK
+    substrings are wrapped so Paragraph can render them with the appropriate fonts.
+    Note: Does NOT escape HTML - escaping should be done AFTER this function.
+    """
+    if not arabic_font_name and not cjk_font_name:
+        return text
+
+    # Build a pattern that matches both Arabic and CJK runs
+    patterns = []
+    if arabic_font_name:
+        patterns.append(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+")
+    if cjk_font_name:
+        patterns.append(r"[\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\uAC00-\uD7AF\u1100-\u11FF]+")
+    
+    combined_pattern = "|".join(f"({p})" for p in patterns)
+    parts = re.split(f"({combined_pattern})", text)
+    
+    out_parts = []
+    for part in parts:
+        if not part:
+            continue
+        
+        if arabic_font_name and contains_arabic(part):
+            # Wrap Arabic text with Arabic font tags
+            out_parts.append(f'<font name="{arabic_font_name}">{part}</font>')
+        elif cjk_font_name and contains_cjk(part):
+            # Wrap CJK text with CJK font tags
+            out_parts.append(f'<font name="{cjk_font_name}">{part}</font>')
+        else:
+            out_parts.append(part)
+
+    return "".join(out_parts)
+
+
 def _wrap_arabic_spans_with_font(text, arabic_font_name):
     """Wrap Arabic runs in the text with ReportLab <font name="..."> tags.
 
     Expects plain text (no <img> tags). Returns text where Arabic
     substrings are wrapped so Paragraph can render them with the Arabic font.
     Note: Does NOT escape HTML - escaping should be done AFTER this function.
+    
+    DEPRECATED: Use _wrap_special_text_with_fonts instead for multi-language support.
     """
-    if not arabic_font_name:
-        return text
-
-    # Split by runs of Arabic and non-Arabic
-    parts = re.split(
-        r"("
-        + r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]+"
-        + r")",
-        text,
-    )
-    out_parts = []
-    for part in parts:
-        if not part:
-            continue
-        if contains_arabic(part):
-            # Wrap Arabic text with font tags (no escaping here!)
-            out_parts.append(f'<font name="{arabic_font_name}">{part}</font>')
-        else:
-            out_parts.append(part)
-
-    return "".join(out_parts)
+    return _wrap_special_text_with_fonts(text, arabic_font_name=arabic_font_name)
 
 
 def escape_html_except_tags(text):
@@ -546,16 +588,17 @@ def _find_optimal_font_size_for_paragraph(
             message, test_font_size, enable_emoji=True
         )
 
-        # Preserve <img> tags while wrapping Arabic text spans with Arabic font
+        # Preserve <img> tags while wrapping Arabic/CJK text spans with appropriate fonts
         arabic_font_name = get_arabic_font()
+        cjk_font_name = get_cjk_font()
         parts = re.split(r"(<img[^>]+>)", processed_message)
         wrapped_parts = []
         for p in parts:
             if p.startswith("<img"):
                 wrapped_parts.append(p)
             else:
-                # wrap Arabic spans inside this text part
-                wrapped = _wrap_arabic_spans_with_font(p, arabic_font_name)
+                # wrap Arabic and CJK spans inside this text part
+                wrapped = _wrap_special_text_with_fonts(p, arabic_font_name, cjk_font_name)
                 wrapped_parts.append(wrapped)
         processed_message = "".join(wrapped_parts)
 
@@ -660,15 +703,16 @@ def _truncate_paragraph_to_fit(
         processed_message = process_text_for_rendering(
             truncated_message, font_size, enable_emoji=True
         )
-        # Preserve <img> tags and wrap Arabic spans with Arabic font
+        # Preserve <img> tags and wrap Arabic/CJK spans with appropriate fonts
         arabic_font_name = get_arabic_font()
+        cjk_font_name = get_cjk_font()
         parts = re.split(r"(<img[^>]+>)", processed_message)
         wrapped_parts = []
         for p in parts:
             if p.startswith("<img"):
                 wrapped_parts.append(p)
             else:
-                wrapped_parts.append(_wrap_arabic_spans_with_font(p, arabic_font_name))
+                wrapped_parts.append(_wrap_special_text_with_fonts(p, arabic_font_name, cjk_font_name))
         processed_message = "".join(wrapped_parts)
 
         processed_message = escape_html_except_tags(processed_message)
@@ -695,13 +739,14 @@ def _truncate_paragraph_to_fit(
         truncated_message, font_size, enable_emoji=True
     )
     arabic_font_name = get_arabic_font()
+    cjk_font_name = get_cjk_font()
     parts = re.split(r"(<img[^>]+>)", processed_message)
     wrapped_parts = []
     for p in parts:
         if p.startswith("<img"):
             wrapped_parts.append(p)
         else:
-            wrapped_parts.append(_wrap_arabic_spans_with_font(p, arabic_font_name))
+            wrapped_parts.append(_wrap_special_text_with_fonts(p, arabic_font_name, cjk_font_name))
     processed_message = "".join(wrapped_parts)
     processed_message = escape_html_except_tags(processed_message)
     processed_message = processed_message.replace("\n", "<br/>")
@@ -755,15 +800,16 @@ def _draw_address_section(
             address, address_font_size, enable_emoji=enable_emoji
         )
 
-        # Preserve <img> tags and wrap Arabic spans with Arabic font
+        # Preserve <img> tags and wrap Arabic/CJK spans with appropriate fonts
         arabic_font_name = get_arabic_font()
+        cjk_font_name = get_cjk_font()
         parts = re.split(r"(<img[^>]+>)", processed_address)
         wrapped_parts = []
         for p in parts:
             if p.startswith("<img"):
                 wrapped_parts.append(p)
             else:
-                wrapped_parts.append(_wrap_arabic_spans_with_font(p, arabic_font_name))
+                wrapped_parts.append(_wrap_special_text_with_fonts(p, arabic_font_name, cjk_font_name))
         processed_address = "".join(wrapped_parts)
 
         processed_address = escape_html_except_tags(processed_address)
@@ -806,6 +852,9 @@ def _draw_address_section(
             if contains_arabic(line):
                 arabic_font_name = get_arabic_font()
                 canvas_obj.setFont(arabic_font_name, address_font_size)
+            elif contains_cjk(line):
+                cjk_font_name = get_cjk_font()
+                canvas_obj.setFont(cjk_font_name, address_font_size)
             else:
                 canvas_obj.setFont(font_name, address_font_size)
 
@@ -939,15 +988,16 @@ def generate_back_side(
     bottom_margin = margin
     available_height = height - top_margin - bottom_margin
 
-    # Check if message contains emojis or Arabic text
+    # Check if message contains emojis, Arabic, or CJK text
     has_emojis = enable_emoji and bool(emoji.emoji_list(message))
     has_arabic = contains_arabic(message)
-    needs_paragraph = has_emojis or has_arabic
+    has_cjk = contains_cjk(message)
+    needs_paragraph = has_emojis or has_arabic or has_cjk
 
     # Quick estimation check
     text_fits = _estimate_if_text_fits(message, max_width, available_height, font_name)
 
-    # === PARAGRAPH MODE (for emoji and/or Arabic text) ===
+    # === PARAGRAPH MODE (for emoji, Arabic, and/or CJK text) ===
     if needs_paragraph:
         # Pre-cache all emoji images for performance
         if has_emojis:
@@ -1015,8 +1065,9 @@ def generate_back_side(
                 message, font_size, enable_emoji=enable_emoji
             )
 
-            # Wrap Arabic spans with Arabic font while preserving <img> tags
+            # Wrap Arabic/CJK spans with appropriate fonts while preserving <img> tags
             arabic_font_name = get_arabic_font()
+            cjk_font_name = get_cjk_font()
             parts = re.split(r"(<img[^>]+>)", processed_message)
             wrapped_parts = []
             for p in parts:
@@ -1024,7 +1075,7 @@ def generate_back_side(
                     wrapped_parts.append(p)
                 else:
                     wrapped_parts.append(
-                        _wrap_arabic_spans_with_font(p, arabic_font_name)
+                        _wrap_special_text_with_fonts(p, arabic_font_name, cjk_font_name)
                     )
             processed_message = "".join(wrapped_parts)
 
@@ -1068,13 +1119,21 @@ def generate_back_side(
             c.setFont(font_name, font_size)
             for line in lines:
                 if line.strip():
-                    # When wrapping text for canvas mode, treat Arabic lines specially
+                    # When wrapping text for canvas mode, treat Arabic and CJK lines specially
                     if contains_arabic(line):
                         # Use Arabic font for measurement and wrapping
                         arabic_font_name = get_arabic_font()
                         wrapped_lines.extend(
                             wrap_text_to_width(
                                 line, max_width, c, arabic_font_name, font_size
+                            )
+                        )
+                    elif contains_cjk(line):
+                        # Use CJK font for measurement and wrapping
+                        cjk_font_name = get_cjk_font()
+                        wrapped_lines.extend(
+                            wrap_text_to_width(
+                                line, max_width, c, cjk_font_name, font_size
                             )
                         )
                     else:
@@ -1100,12 +1159,15 @@ def generate_back_side(
             if max_lines > 0:
                 wrapped_lines[-1] = wrapped_lines[-1] + " [...]"
 
-        # Draw text (set font per-line depending on Arabic content)
+        # Draw text (set font per-line depending on Arabic/CJK content)
         y = height - margin - font_size
         for line in wrapped_lines:
             if contains_arabic(line):
                 arabic_font_name = get_arabic_font()
                 c.setFont(arabic_font_name, font_size)
+            elif contains_cjk(line):
+                cjk_font_name = get_cjk_font()
+                c.setFont(cjk_font_name, font_size)
             else:
                 c.setFont(font_name, font_size)
 
