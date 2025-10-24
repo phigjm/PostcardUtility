@@ -168,6 +168,7 @@ def generate_postcard(
     auto_rotate_image=True,
     compression_quality=85,  # JPEG quality for image compression (1-100)
     enable_emoji=True,  # Enable colored emoji support
+    text_color="black",  # Text color for message and address
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -184,6 +185,7 @@ def generate_postcard(
     :param auto_rotate_image: Automatically rotate portrait images to landscape (default=True)
     :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
     :param enable_emoji: Enable colored emoji support (default=True)
+    :param text_color: Text color for message and address (default='black')
     """
     width, height = page_size
 
@@ -217,6 +219,7 @@ def generate_postcard(
             show_debug_lines=show_debug_lines,
             message_area_ratio=message_area_ratio,
             enable_emoji=enable_emoji,
+            text_color=text_color,
         )
         c.save()
 
@@ -272,6 +275,7 @@ def generate_postcard(
             show_debug_lines=show_debug_lines,
             message_area_ratio=message_area_ratio,
             enable_emoji=enable_emoji,
+            text_color=text_color,
         )
 
         # Save PDF

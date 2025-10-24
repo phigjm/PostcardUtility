@@ -50,6 +50,84 @@ EARLY_CHECK_THRESHOLD = (
     1.5  # Skip optimization if estimated height > threshold * available height
 )
 
+# Color mapping from color names to RGB tuples
+COLOR_MAP = {
+    "black": (0, 0, 0),
+    "white": (1, 1, 1),
+    "gray": (0.5, 0.5, 0.5),
+    "red": (1, 0, 0),
+    "blue": (0, 0, 1),
+    "green": (0, 0.5, 0),
+    "navy": (0, 0, 0.5),
+    "darkred": (0.5, 0, 0),
+    "purple": (0.5, 0, 0.5),
+    "brown": (0.6, 0.4, 0.2),
+    "orange": (1, 0.65, 0),
+}
+
+
+def get_color_rgb(color_input):
+    """
+    Convert color input to RGB tuple.
+    Supports:
+    - Color names: 'black', 'red', 'blue', etc.
+    - Hex codes: '#FF0000', 'FF0000'
+    - RGB values: '255,0,0', 'rgb(255,0,0)'
+    
+    :param color_input: Color string in various formats
+    :return: RGB tuple (r, g, b) where each value is between 0 and 1
+    """
+    if not color_input or not isinstance(color_input, str):
+        return (0, 0, 0)  # Default to black
+    
+    color_input = color_input.strip().lower()
+    
+    # Check if it's a predefined color name
+    if color_input in COLOR_MAP:
+        return COLOR_MAP[color_input]
+    
+    # Check for hex color code
+    if color_input.startswith('#'):
+        hex_color = color_input.lstrip('#')
+    elif len(color_input) == 6 and all(c in '0123456789abcdef' for c in color_input):
+        hex_color = color_input
+    else:
+        hex_color = None
+    
+    if hex_color and len(hex_color) == 6:
+        try:
+            r = int(hex_color[0:2], 16) / 255.0
+            g = int(hex_color[2:4], 16) / 255.0
+            b = int(hex_color[4:6], 16) / 255.0
+            return (r, g, b)
+        except ValueError:
+            pass
+    
+    # Check for RGB format: "255,0,0" or "rgb(255,0,0)"
+    rgb_match = re.match(r'rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)', color_input)
+    if rgb_match:
+        try:
+            r = int(rgb_match.group(1)) / 255.0
+            g = int(rgb_match.group(2)) / 255.0
+            b = int(rgb_match.group(3)) / 255.0
+            return (max(0, min(1, r)), max(0, min(1, g)), max(0, min(1, b)))
+        except (ValueError, AttributeError):
+            pass
+    
+    # Try simple comma-separated RGB values
+    try:
+        parts = color_input.split(',')
+        if len(parts) == 3:
+            r = int(parts[0].strip()) / 255.0
+            g = int(parts[1].strip()) / 255.0
+            b = int(parts[2].strip()) / 255.0
+            return (max(0, min(1, r)), max(0, min(1, g)), max(0, min(1, b)))
+    except (ValueError, AttributeError):
+        pass
+    
+    # Default to black if nothing matched
+    return (0, 0, 0)
+
 
 def contains_arabic(text):
     """
@@ -756,7 +834,7 @@ def _truncate_paragraph_to_fit(
 
 
 def _draw_address_section(
-    canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True
+    canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True, text_color="black"
 ):
     """
     Draw the address section on the right side of the postcard.
@@ -769,7 +847,11 @@ def _draw_address_section(
     :param font_name: Font name
     :param width: Page width
     :param enable_emoji: Enable colored emoji support (default=True)
+    :param text_color: Text color name (default='black')
     """
+    # Get RGB color values
+    r, g, b = get_color_rgb(text_color)
+    
     addr_x = divider_x + margin
     address_font_size = 12
 
@@ -842,6 +924,7 @@ def _draw_address_section(
     else:
         # Traditional text rendering without emojis
         canvas_obj.setFont(font_name, address_font_size)
+        canvas_obj.setFillColorRGB(r, g, b)
 
         address_lines = address.splitlines()
         line_height = 14
@@ -965,6 +1048,7 @@ def generate_back_side(
     show_debug_lines=False,
     message_area_ratio=0.5,
     enable_emoji=True,
+    text_color="black",
 ):
     """
     Generate the back side (text side) of a postcard on an existing canvas.
@@ -977,6 +1061,7 @@ def generate_back_side(
     :param show_debug_lines: Whether to show debugging boundary lines (default=False)
     :param message_area_ratio: Ratio of message area width (default=0.5 for 50%)
     :param enable_emoji: Enable colored emoji support (default=True)
+    :param text_color: Text color for message and address (default='black')
     """
     width, height = page_size
     margin = 10 * mm
@@ -1084,6 +1169,7 @@ def generate_back_side(
             para = Paragraph(processed_message, style)
 
         # Draw the paragraph
+        # Use minimal padding and margins to avoid white borders
         frame = Frame(
             margin,
             bottom_margin,
@@ -1095,6 +1181,11 @@ def generate_back_side(
             topPadding=0,
             showBoundary=0,
         )
+        # Ensure paragraph has no internal spacing that could create white borders
+        para.leftIndent = 0
+        para.rightIndent = 0
+        para.spaceBefore = 0
+        para.spaceAfter = 0
         frame.addFromList([para], c)
         final_line_height = style.leading
 
@@ -1160,6 +1251,8 @@ def generate_back_side(
                 wrapped_lines[-1] = wrapped_lines[-1] + " [...]"
 
         # Draw text (set font per-line depending on Arabic/CJK content)
+        # Get RGB color values for message
+        r, g, b = get_color_rgb(text_color)
         y = height - margin - font_size
         for line in wrapped_lines:
             if contains_arabic(line):
@@ -1171,6 +1264,9 @@ def generate_back_side(
             else:
                 c.setFont(font_name, font_size)
 
+            # Set text color
+            c.setFillColorRGB(r, g, b)
+
             # drawString uses left-to-right origin; for Arabic canvas drawing we keep it
             # simple - Paragraph mode handles rich RTL/reshaping. For canvas mode we
             # draw the raw line (reshaped text should already be applied earlier).
@@ -1179,7 +1275,7 @@ def generate_back_side(
 
     # === DRAW ADDRESS AND STAMP ===
     _draw_address_section(
-        c, address, divider_x, margin, height, font_name, width, enable_emoji
+        c, address, divider_x, margin, height, font_name, width, enable_emoji, text_color
     )
     _draw_stamp_box(c, width, height, margin, font_name)
 
