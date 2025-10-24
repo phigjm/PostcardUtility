@@ -6,7 +6,9 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfbase import pdfmetrics
 from PIL import Image
 import os
+import tempfile
 from pypdf import PdfReader, PdfWriter
+from typing import List, Union, Literal, Optional
 
 # Try relative import first (when used as module), fall back to direct import (when run standalone)
 try:
@@ -44,7 +46,7 @@ def register_font(font_path):
     return font_name
 
 
-def generate_front_side(
+def _draw_image_on_canvas(
     c,
     image_path,
     page_size,
@@ -53,7 +55,7 @@ def generate_front_side(
     compression_quality=85,
 ):
     """
-    Generate the front side (image side) of a postcard on an existing canvas.
+    Internal helper: Draw an image on an existing canvas.
 
     :param c: ReportLab canvas object
     :param image_path: Path to the front image
@@ -110,8 +112,6 @@ def generate_front_side(
             img = img.crop((0, top, img.width, top + new_height))
 
         # Save processed image as compressed JPEG to temp file
-        import tempfile
-
         temp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
         temp_img.close()
 
@@ -155,20 +155,118 @@ def generate_front_side(
         )
 
 
+def generate_front_side_image(
+    image_path,
+    output_file,
+    page_size=landscape(A4),
+    border_thickness=5,
+    auto_rotate_image=True,
+    compression_quality=85,
+):
+    """
+    Generate the front side (image side) as a standalone PDF.
+
+    :param image_path: Path to the front image
+    :param output_file: Output PDF filename
+    :param page_size: Page size tuple (width, height)
+    :param border_thickness: Border size in points (default=5)
+    :param auto_rotate_image: Automatically rotate portrait images to landscape (default=True)
+    :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
+    :return: Path to generated PDF
+    """
+    c = canvas.Canvas(output_file, pagesize=page_size)
+    _draw_image_on_canvas(
+        c=c,
+        image_path=image_path,
+        page_size=page_size,
+        border_thickness=border_thickness,
+        auto_rotate_image=auto_rotate_image,
+        compression_quality=compression_quality,
+    )
+    c.save()
+    return output_file
+
+
+def generate_front_side_pdf(
+    image_path,
+    output_file,
+    page_size=landscape(A4),
+):
+    """
+    Generate front side from existing PDF (just copies first page).
+
+    :param image_path: Path to the front PDF
+    :param output_file: Output PDF filename
+    :param page_size: Page size tuple (width, height)
+    :return: Path to generated PDF
+    """
+    pdf_writer = PdfWriter()
+    with open(image_path, "rb") as pdf_file:
+        pdf_reader = PdfReader(pdf_file)
+        pdf_writer.add_page(pdf_reader.pages[0])
+
+    with open(output_file, "wb") as output_pdf_file:
+        pdf_writer.write(output_pdf_file)
+
+    return output_file
+
+
+def generate_back_side_pdf(
+    message,
+    address,
+    output_file,
+    font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+    page_size=landscape(A4),
+    show_debug_lines=False,
+    message_area_ratio=0.5,
+    enable_emoji=True,
+    text_color="black",
+):
+    """
+    Generate the back side (text side) as a standalone PDF.
+
+    :param message: Text message for back
+    :param address: Address string (multiline)
+    :param output_file: Output PDF filename
+    :param font_path: Path to TTF/OTF font file or name of built-in font
+    :param page_size: Page size tuple (default=A4 landscape)
+    :param show_debug_lines: Whether to show debugging boundary lines (default=False)
+    :param message_area_ratio: Ratio of message area width (default=0.5 for 50%)
+    :param enable_emoji: Enable colored emoji support (default=True)
+    :param text_color: Text color for message and address (default='black')
+    :return: Path to generated PDF
+    """
+    font_name = register_font(font_path)
+    c = canvas.Canvas(output_file, pagesize=page_size)
+    generate_back_side(
+        c=c,
+        message=message,
+        address=address,
+        font_name=font_name,
+        page_size=page_size,
+        show_debug_lines=show_debug_lines,
+        message_area_ratio=message_area_ratio,
+        enable_emoji=enable_emoji,
+        text_color=text_color,
+    )
+    c.save()
+    return output_file
+
+
 def generate_postcard(
     image_path,
     message,
     address,
     output_file="postcard.pdf",
-    font_path=r"C:\Users\gjm\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+    font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
     page_size=landscape(A4),
     border_thickness=5,
     show_debug_lines=False,
-    message_area_ratio=0.5,  # Anteil des Messagebereichs (z.B. 0.6 für 3/5 links)
+    message_area_ratio=0.5,
     auto_rotate_image=True,
-    compression_quality=85,  # JPEG quality for image compression (1-100)
-    enable_emoji=True,  # Enable colored emoji support
-    text_color="black",  # Text color for message and address
+    compression_quality=85,
+    enable_emoji=True,
+    text_color="black",
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -199,12 +297,9 @@ def generate_postcard(
 
     if is_pdf_input:
         # PDF input: merge existing PDF with generated text side
-        # Register font
         font_name = register_font(font_path)
 
         # Create temporary file for text side
-        import tempfile
-
         temp_text_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp_text_pdf.close()
 
@@ -247,14 +342,13 @@ def generate_postcard(
 
     else:
         # Image input: generate both sides
-        # Register font
         font_name = register_font(font_path)
 
         # Create canvas
         c = canvas.Canvas(output_file, pagesize=page_size)
 
         # --- FRONT SIDE ---
-        generate_front_side(
+        _draw_image_on_canvas(
             c=c,
             image_path=image_path,
             page_size=page_size,
@@ -283,49 +377,321 @@ def generate_postcard(
         print(f"Postcard generated successfully: {output_file}")
 
 
+def generate_postcard_batch(
+    image_path,
+    messages_and_addresses: List[dict],
+    output_file="postcards_batch.pdf",
+    mode: Literal["compact", "joined", "splitted"] = "joined",
+    output_directory: Optional[str] = None,
+    font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+    page_size=landscape(A4),
+    border_thickness=5,
+    show_debug_lines=False,
+    message_area_ratio=0.5,
+    auto_rotate_image=True,
+    compression_quality=85,
+    enable_emoji=True,
+    text_color="black",
+):
+    """
+    Generate multiple postcards in batch mode.
+
+    :param image_path: Path to the front image or PDF file (shared for all postcards)
+    :param messages_and_addresses: List of dicts with 'message' and 'address' keys
+    :param output_file: Output PDF filename or base name for splitted mode
+    :param mode: Generation mode:
+        - 'compact': Single PDF with one front side and multiple message sides
+        - 'joined': Single PDF with alternating front and back sides (front only generated once)
+        - 'splitted': Multiple PDFs, one per postcard
+    :param output_directory: Directory for splitted mode (default: same as output_file)
+    :param font_path: Path to TTF/OTF font file or name of built-in font
+    :param page_size: Page size tuple (default=A4 landscape)
+    :param border_thickness: Border size in points (default=5)
+    :param show_debug_lines: Whether to show debugging boundary lines (default=False)
+    :param message_area_ratio: Ratio of message area width (default=0.5 for 50%)
+    :param auto_rotate_image: Automatically rotate portrait images to landscape (default=True)
+    :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
+    :param enable_emoji: Enable colored emoji support (default=True)
+    :param text_color: Text color for message and address (default='black')
+    :return: List of generated file paths
+    """
+    if not messages_and_addresses:
+        raise ValueError("messages_and_addresses list cannot be empty")
+
+    # Set up emoji cache directory if emoji support is enabled
+    if enable_emoji:
+        emoji_cache_dir = os.path.join(os.path.dirname(__file__), ".emoji_cache")
+        set_emoji_cache_dir(emoji_cache_dir)
+
+    # Register font once
+    font_name = register_font(font_path)
+    is_pdf_input = image_path.lower().endswith(".pdf")
+    generated_files = []
+
+    if mode == "compact":
+        # Single PDF: one front side + all message sides
+        pdf_writer = PdfWriter()
+
+        # Generate and add front side
+        temp_front = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_front.close()
+
+        if is_pdf_input:
+            with open(image_path, "rb") as pdf_file:
+                pdf_reader = PdfReader(pdf_file)
+                pdf_writer.add_page(pdf_reader.pages[0])
+        else:
+            c = canvas.Canvas(temp_front.name, pagesize=page_size)
+            _draw_image_on_canvas(
+                c=c,
+                image_path=image_path,
+                page_size=page_size,
+                border_thickness=border_thickness,
+                auto_rotate_image=auto_rotate_image,
+                compression_quality=compression_quality,
+            )
+            c.save()
+
+            with open(temp_front.name, "rb") as pdf_file:
+                pdf_reader = PdfReader(pdf_file)
+                pdf_writer.add_page(pdf_reader.pages[0])
+
+        # Generate and add all message sides
+        for item in messages_and_addresses:
+            message = item.get("message", "")
+            address = item.get("address", "")
+
+            temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            temp_back.close()
+
+            c = canvas.Canvas(temp_back.name, pagesize=page_size)
+            generate_back_side(
+                c=c,
+                message=message,
+                address=address,
+                font_name=font_name,
+                page_size=page_size,
+                show_debug_lines=show_debug_lines,
+                message_area_ratio=message_area_ratio,
+                enable_emoji=enable_emoji,
+                text_color=text_color,
+            )
+            c.save()
+
+            with open(temp_back.name, "rb") as pdf_file:
+                pdf_reader = PdfReader(pdf_file)
+                pdf_writer.add_page(pdf_reader.pages[0])
+
+            os.unlink(temp_back.name)
+
+        # Write final PDF
+        with open(output_file, "wb") as output_pdf:
+            pdf_writer.write(output_pdf)
+
+        if not is_pdf_input:
+            os.unlink(temp_front.name)
+
+        generated_files.append(output_file)
+        print(f"Compact postcard batch generated: {output_file}")
+
+    elif mode == "joined":
+        # Single PDF: alternating front and back sides (front is reused)
+        pdf_writer = PdfWriter()
+
+        # Generate front side once
+        temp_front = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_front.close()
+
+        if is_pdf_input:
+            # Copy PDF front page to temp
+            with open(image_path, "rb") as pdf_file:
+                pdf_reader = PdfReader(pdf_file)
+                front_writer = PdfWriter()
+                front_writer.add_page(pdf_reader.pages[0])
+                with open(temp_front.name, "wb") as temp:
+                    front_writer.write(temp)
+        else:
+            c = canvas.Canvas(temp_front.name, pagesize=page_size)
+            _draw_image_on_canvas(
+                c=c,
+                image_path=image_path,
+                page_size=page_size,
+                border_thickness=border_thickness,
+                auto_rotate_image=auto_rotate_image,
+                compression_quality=compression_quality,
+            )
+            c.save()
+
+        # Add front + back pairs
+        for item in messages_and_addresses:
+            # Add front side
+            with open(temp_front.name, "rb") as pdf_file:
+                pdf_reader = PdfReader(pdf_file)
+                pdf_writer.add_page(pdf_reader.pages[0])
+
+            # Generate and add back side
+            message = item.get("message", "")
+            address = item.get("address", "")
+
+            temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            temp_back.close()
+
+            c = canvas.Canvas(temp_back.name, pagesize=page_size)
+            generate_back_side(
+                c=c,
+                message=message,
+                address=address,
+                font_name=font_name,
+                page_size=page_size,
+                show_debug_lines=show_debug_lines,
+                message_area_ratio=message_area_ratio,
+                enable_emoji=enable_emoji,
+                text_color=text_color,
+            )
+            c.save()
+
+            with open(temp_back.name, "rb") as pdf_file:
+                pdf_reader = PdfReader(pdf_file)
+                pdf_writer.add_page(pdf_reader.pages[0])
+
+            os.unlink(temp_back.name)
+
+        # Write final PDF
+        with open(output_file, "wb") as output_pdf:
+            pdf_writer.write(output_pdf)
+
+        os.unlink(temp_front.name)
+
+        generated_files.append(output_file)
+        print(f"Joined postcard batch generated: {output_file}")
+
+    elif mode == "splitted":
+        # Multiple PDFs, one per postcard
+        if output_directory is None:
+            output_directory = os.path.dirname(output_file) or "."
+
+        base_name = os.path.splitext(os.path.basename(output_file))[0]
+
+        for idx, item in enumerate(messages_and_addresses, 1):
+            postcard_file = os.path.join(
+                output_directory, f"{base_name}_{idx:03d}.pdf"
+            )
+
+            message = item.get("message", "")
+            address = item.get("address", "")
+
+            # Generate single postcard
+            generate_postcard(
+                image_path=image_path,
+                message=message,
+                address=address,
+                output_file=postcard_file,
+                font_path=font_path,
+                page_size=page_size,
+                border_thickness=border_thickness,
+                show_debug_lines=show_debug_lines,
+                message_area_ratio=message_area_ratio,
+                auto_rotate_image=auto_rotate_image,
+                compression_quality=compression_quality,
+                enable_emoji=enable_emoji,
+                text_color=text_color,
+            )
+
+            generated_files.append(postcard_file)
+
+        print(f"Splitted postcard batch generated: {len(generated_files)} files")
+
+    else:
+        raise ValueError(
+            f"Invalid mode: {mode}. Must be 'compact', 'joined', or 'splitted'"
+        )
+
+    return generated_files
+
+
 # Example usage
 if __name__ == "__main__":
-    message = "4Greetings from the mountains! \n Wish you were here. \n \n asdlf alseiofn asdiofn asdfoi nweiofnasiofn owienf aaaaoiasdnfoiasdfnioasndfoiasdfnasoidfnaosidfnasdoifnaaa aaaaosidfoiasndfoinasdoifnasodifnaosidfnaosidfnaaa oiasdfn asdofn asdifnoasdnf oiasdfnoi nasidfo nasdiofna sdnfiasdf aaaaaaaaaaaaaaaaalasdkflöasdfkoiowenroaisnfojasdfoiasdfnasodfiaaaaaaaaaaaaa askdfaklsd foiansdfo isadnfoas difasof sdofinsdifnoi sdnfisndfo isdnf osdibf soidfi sdoifiosdfisodfo sdifods iofiosdfio sdiof isdfi sdif isddfoisoidf ois asdifo osadfn sidfno aisdfn asoidfn asoidfno asdifnasdoif nasdofn asdoifn asdoifn asdfoia asdkfkalsd asdfoi asdnf asodif asdfioasd foasdiof ioasdfio asidf ioasdfiaisdfioasdiofioasdfioioi iio ioasdiofiofi iosdfdio ifisdfio siodf ioiosdf iodisdiof io ioios fdioiosdfi iosidf i sdf ioasndf asdfi oisdfio sdiofio iosdiofi isdio iosdifo iosidfio isdfi iosdiof isdi iosdfio iosdfiid siofi isdiof iosiodf iosdiof iosdif iosdfio isdfio oisdfio ioios difoiosdiofi sidfio isdfinoisdfn sonidf nsoifdi osifd iosdiof isidfoi oisdfio sidofi osdfioi osdiof iosdfio iosif iosdfio iosdf sdf"
+    # ============================================================================
+    # EXAMPLE 1: Single postcard generation (original function)
+    # ============================================================================
+    folder = r"C:\Users\Gabri\Projecte\PostCardDjango\media\misc\tmp\test_cards\\"
+    folder = r"C:\Users\Gabri\Downloads\Test"
+
     message = """Liebe Alina,
 
-ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama aussprechen. Ich kann mir nur annähernd vorstellen, wie schwer dieser Abschied für dich sein muss. Deine Mutter war ein wichtiger Teil deines Lebens, und es ist unendlich schwer, so einen geliebten Menschen loslassen zu müssen.
-"""
-    # print(message)
+ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama aussprechen."""
 
-    message = "s❤️fad👀fasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdf32343452345234523452345234523452345234523452345234523452345234523453245234523452345234523452345234523452345234523452345234523452345234523452345sadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfasdfasdfalksdfklasdkfaskdflkasdfkasdfsadfasdflasdfa"
-    message += message + message + message + message + message  # Test very long message
-    # message += message + message + message + message + message  # Test very long message
-
-    print("längth message", len(message))
-    folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\misc\tmp\test_cards\\"
-
-    # Example 1: Using an image as front side
+    # Using an image as front side
     generate_postcard(
-        # image_path=r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\i-311.jpeg",
-        # image_path=r"C:\Users\gjm\Downloads\IMG_20250912_141205_773.jpg",
-        image_path=r"C:\Users\gjm\Downloads\dc_grafiktest (1).pdf",
+        image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
         message=message,
         address="John Doe\n123 Main Street\n12345 Hometown\nCountry",
-        output_file=folder + "postcard.pdf",
-        font_path=r"C:\Users\gjm\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
-        show_debug_lines=False,  # Set to True to show boundary lines for debugging
+        output_file=folder + "postcard_single.pdf",
+        font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+        show_debug_lines=False,
         border_thickness=0,
     )
 
-    # Example 2: Using a PDF as front side (will be merged with text side)
-    # generate_postcard(
-    #     image_path=r"C:\Users\gjm\Projecte\PostCardDjango\media\postcards\tmp\front_design.pdf",
-    #     message="Hello from the mountains!",
-    #     address="Jane Smith\n456 Oak Avenue\n54321 Cityville\nCountry",
-    #     output_file=folder + "postcard_with_pdf_front.pdf",
-    #     font_path=r"C:\Users\gjm\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
-    #     show_debug_lines=False,
-    # )
+    # ============================================================================
+    # EXAMPLE 2: Batch generation - COMPACT mode
+    # ============================================================================
+    # Single PDF with one front side and multiple message/address pages
+    postcards_compact = [
+        {
+            "message": "Greetings from the mountains!",
+            "address": "John Doe\n123 Main Street\n12345 Hometown",
+        },
+        {
+            "message": "Wish you were here!",
+            "address": "Jane Smith\n456 Oak Avenue\n54321 Cityville",
+        },
+        {
+            "message": "Beautiful weather today!",
+            "address": "Bob Wilson\n789 Pine Road\n99999 Smalltown",
+        },
+    ]
 
-    from postprocessor import process_postcard
-
-    process_postcard(
-        folder + "postcard.pdf",
-        folder + "print_version.pdf",
-        folder + "preview_version.pdf",
+    generate_postcard_batch(
+        image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
+        messages_and_addresses=postcards_compact,
+        output_file=folder + "postcards_compact.pdf",
+        mode="compact",
+        font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
     )
+
+    # ============================================================================
+    # EXAMPLE 3: Batch generation - JOINED mode
+    # ============================================================================
+    # Single PDF with alternating front (reused) and back sides
+    generate_postcard_batch(
+        image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
+        messages_and_addresses=postcards_compact,
+        output_file=folder + "postcards_joined.pdf",
+        mode="joined",
+        font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+    )
+
+    # ============================================================================
+    # EXAMPLE 4: Batch generation - SPLITTED mode
+    # ============================================================================
+    # Multiple individual PDFs (one per postcard)
+    generated_files = generate_postcard_batch(
+        image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
+        messages_and_addresses=postcards_compact,
+        output_file=folder + "postcard_batch.pdf",
+        mode="splitted",
+        output_directory=folder,
+        font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+    )
+
+    print(f"Generated {len(generated_files)} individual postcards")
+
+    # ============================================================================
+    # Post-processing (optional)
+    # ============================================================================
+    # from postprocessor import process_postcard
+    # process_postcard(
+    #     folder + "postcard_single.pdf",
+    #     folder + "print_version.pdf",
+    #     folder + "preview_version.pdf",
+    # )
