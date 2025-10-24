@@ -9,6 +9,7 @@ import os
 import tempfile
 from pypdf import PdfReader, PdfWriter
 from typing import List, Union, Literal, Optional
+import io
 
 # Try relative import first (when used as module), fall back to direct import (when run standalone)
 try:
@@ -174,7 +175,7 @@ def generate_front_side_image(
     :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
     :return: Path to generated PDF
     """
-    c = canvas.Canvas(output_file, pagesize=page_size)
+    c = canvas.Canvas(output_file, pagesize=page_size, compress=True)
     _draw_image_on_canvas(
         c=c,
         image_path=image_path,
@@ -237,7 +238,7 @@ def generate_back_side_pdf(
     :return: Path to generated PDF
     """
     font_name = register_font(font_path)
-    c = canvas.Canvas(output_file, pagesize=page_size)
+    c = canvas.Canvas(output_file, pagesize=page_size, compress=True)
     generate_back_side(
         c=c,
         message=message,
@@ -303,8 +304,8 @@ def generate_postcard(
         temp_text_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp_text_pdf.close()
 
-        # Generate only the text side
-        c = canvas.Canvas(temp_text_pdf.name, pagesize=page_size)
+        # Generate only the text side (with compression)
+        c = canvas.Canvas(temp_text_pdf.name, pagesize=page_size, compress=True)
         generate_back_side(
             c=c,
             message=message,
@@ -344,8 +345,8 @@ def generate_postcard(
         # Image input: generate both sides
         font_name = register_font(font_path)
 
-        # Create canvas
-        c = canvas.Canvas(output_file, pagesize=page_size)
+        # Create canvas with compression enabled
+        c = canvas.Canvas(output_file, pagesize=page_size, compress=True)
 
         # --- FRONT SIDE ---
         _draw_image_on_canvas(
@@ -441,7 +442,7 @@ def generate_postcard_batch(
                 pdf_reader = PdfReader(pdf_file)
                 pdf_writer.add_page(pdf_reader.pages[0])
         else:
-            c = canvas.Canvas(temp_front.name, pagesize=page_size)
+            c = canvas.Canvas(temp_front.name, pagesize=page_size, compress=True)
             _draw_image_on_canvas(
                 c=c,
                 image_path=image_path,
@@ -464,7 +465,7 @@ def generate_postcard_batch(
             temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             temp_back.close()
 
-            c = canvas.Canvas(temp_back.name, pagesize=page_size)
+            c = canvas.Canvas(temp_back.name, pagesize=page_size, compress=True)
             generate_back_side(
                 c=c,
                 message=message,
@@ -484,7 +485,7 @@ def generate_postcard_batch(
 
             os.unlink(temp_back.name)
 
-        # Write final PDF
+        # Write final PDF with compression
         with open(output_file, "wb") as output_pdf:
             pdf_writer.write(output_pdf)
 
@@ -495,23 +496,23 @@ def generate_postcard_batch(
         print(f"Compact postcard batch generated: {output_file}")
 
     elif mode == "joined":
-        # Single PDF: alternating front and back sides (front is reused)
+        # Single PDF: alternating front and back sides
+        # OPTIMIZATION: Keep front page in memory and reuse it for all postcards
         pdf_writer = PdfWriter()
 
-        # Generate front side once
-        temp_front = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        temp_front.close()
-
+        # Load or generate front side and keep the reader open
         if is_pdf_input:
-            # Copy PDF front page to temp
-            with open(image_path, "rb") as pdf_file:
-                pdf_reader = PdfReader(pdf_file)
-                front_writer = PdfWriter()
-                front_writer.add_page(pdf_reader.pages[0])
-                with open(temp_front.name, "wb") as temp:
-                    front_writer.write(temp)
+            # Load from existing PDF - keep file open for duration
+            front_pdf_file = open(image_path, "rb")
+            front_pdf_reader = PdfReader(front_pdf_file)
+            front_page = front_pdf_reader.pages[0]
+            should_close_front = True
         else:
-            c = canvas.Canvas(temp_front.name, pagesize=page_size)
+            # Generate image-based front side
+            temp_front = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            temp_front.close()
+            
+            c = canvas.Canvas(temp_front.name, pagesize=page_size, compress=True)
             _draw_image_on_canvas(
                 c=c,
                 image_path=image_path,
@@ -522,12 +523,16 @@ def generate_postcard_batch(
             )
             c.save()
 
+            front_pdf_file = open(temp_front.name, "rb")
+            front_pdf_reader = PdfReader(front_pdf_file)
+            front_page = front_pdf_reader.pages[0]
+            should_close_front = True
+            temp_front_name = temp_front.name
+
         # Add front + back pairs
         for item in messages_and_addresses:
-            # Add front side
-            with open(temp_front.name, "rb") as pdf_file:
-                pdf_reader = PdfReader(pdf_file)
-                pdf_writer.add_page(pdf_reader.pages[0])
+            # Add front side (clone the page so it doesn't depend on the reader)
+            pdf_writer.add_page(front_page)
 
             # Generate and add back side
             message = item.get("message", "")
@@ -536,7 +541,7 @@ def generate_postcard_batch(
             temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             temp_back.close()
 
-            c = canvas.Canvas(temp_back.name, pagesize=page_size)
+            c = canvas.Canvas(temp_back.name, pagesize=page_size, compress=True)
             generate_back_side(
                 c=c,
                 message=message,
@@ -550,17 +555,21 @@ def generate_postcard_batch(
             )
             c.save()
 
-            with open(temp_back.name, "rb") as pdf_file:
-                pdf_reader = PdfReader(pdf_file)
-                pdf_writer.add_page(pdf_reader.pages[0])
+            with open(temp_back.name, "rb") as temp_back_file:
+                temp_back_reader = PdfReader(temp_back_file)
+                pdf_writer.add_page(temp_back_reader.pages[0])
 
             os.unlink(temp_back.name)
 
-        # Write final PDF
+        # Write final PDF with compression
         with open(output_file, "wb") as output_pdf:
             pdf_writer.write(output_pdf)
 
-        os.unlink(temp_front.name)
+        # Close and cleanup
+        if should_close_front:
+            front_pdf_file.close()
+            if not is_pdf_input:
+                os.unlink(temp_front_name)
 
         generated_files.append(output_file)
         print(f"Joined postcard batch generated: {output_file}")
@@ -638,8 +647,8 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
     # Single PDF with one front side and multiple message/address pages
     postcards_compact = [
         {
-            "message": "Greetings from the mountains!",
-            "address": "John Doe\n123 Main Street\n12345 Hometown",
+            "message": "Greetings 👋 from the mountains😂!",
+            "address": "John Doe 🏠\n123 Main Street ❤️\n12345 Hometown",
         },
         {
             "message": "Wish you were here!",
@@ -650,6 +659,10 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
             "address": "Bob Wilson\n789 Pine Road\n99999 Smalltown",
         },
     ]
+
+    # kannst du die einträge verfielfältigen für testzwecke
+    postcards_compact *= 400
+
 
     generate_postcard_batch(
         image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
@@ -671,20 +684,21 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
         font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
     )
 
-    # ============================================================================
-    # EXAMPLE 4: Batch generation - SPLITTED mode
-    # ============================================================================
-    # Multiple individual PDFs (one per postcard)
-    generated_files = generate_postcard_batch(
-        image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
-        messages_and_addresses=postcards_compact,
-        output_file=folder + "postcard_batch.pdf",
-        mode="splitted",
-        output_directory=folder,
-        font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
-    )
+    if(False):
+        # ============================================================================
+        # EXAMPLE 4: Batch generation - SPLITTED mode
+        # ============================================================================
+        # Multiple individual PDFs (one per postcard)
+        generated_files = generate_postcard_batch(
+            image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
+            messages_and_addresses=postcards_compact,
+            output_file=folder + "postcard_batch.pdf",
+            mode="splitted",
+            output_directory=folder,
+            font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+        )
 
-    print(f"Generated {len(generated_files)} individual postcards")
+        print(f"Generated {len(generated_files)} individual postcards")
 
     # ============================================================================
     # Post-processing (optional)
