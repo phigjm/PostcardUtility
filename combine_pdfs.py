@@ -22,13 +22,14 @@ def combine_and_merge_double_sided_pdfs(
     Kombiniert eine beliebige Anzahl von doppelseitigen PDFs in einem Grid-Layout.
     Erstellt mehrseitige PDFs wenn mehr PDFs vorhanden sind als in ein Grid passen.
 
-    Jedes Input-PDF sollte genau 2 Seiten haben (Vorder- und Rückseite).
+    Jedes Input-PDF kann eine beliebige gerade Anzahl von Seiten haben (2, 4, 6, ...).
+    PDFs werden paarweise extrahiert (Seite 1+2, Seite 3+4, etc.).
     Das Output-PDF wird mehrere Seitenpaare haben wenn nötig:
     - Seite 1, 3, 5, ...: Vorderseiten im Grid-Layout
     - Seite 2, 4, 6, ...: Rückseiten im Grid-Layout
 
     Args:
-        pdf_paths: Liste der Pfade zu den Input-PDF-Dateien (jedes sollte 2 Seiten haben)
+        pdf_paths: Liste der Pfade zu den Input-PDF-Dateien (jedes sollte eine gerade Seitenanzahl haben)
         output_path: Pfad für das Output-PDF
         layout: Tuple (cols, rows) für das Grid-Layout, z.B. (2,2) für 2x2 Grid
         flip_on_short_edge: Falls True, wird für kurze Seite gespiegelt; Falls False, für lange Seite (Standard)
@@ -39,6 +40,8 @@ def combine_and_merge_double_sided_pdfs(
     Returns:
         bool: True wenn erfolgreich, False bei Fehler
     """
+
+    print("merghe the following pdfs:", pdf_paths)
 
     # Convert mm to points (1 mm = 2.834645669 points)
     # Handle both single value and tuple for outer_border
@@ -58,13 +61,8 @@ def combine_and_merge_double_sided_pdfs(
             print("Fehler: Keine PDF-Pfade angegeben")
             return False
 
-        total_pdfs = len(pdf_paths)
-        grids_needed = (total_pdfs + pages_per_grid - 1) // pages_per_grid  # Aufrunden
-
-        print(f"Layout: {cols}x{rows} = {pages_per_grid} PDFs pro Grid")
-        print(f"Gesamt PDFs: {total_pdfs}")
-        print(f"Benötigte Grids: {grids_needed}")
-        print(f"Output wird {grids_needed * 2} Seiten haben")
+        print(f"Layout: {cols}x{rows} = {pages_per_grid} Postkarten pro Grid")
+        print(f"Anzahl PDF-Dateien: {len(pdf_paths)}")
 
         # Alle PDFs laden und validieren
         all_front_pages = []
@@ -99,28 +97,61 @@ def combine_and_merge_double_sided_pdfs(
                         width=reference_width, height=reference_height
                     )
 
-            else:
-                front_page = reader.pages[0]
-                back_page = reader.pages[1]
-                if len(reader.pages) > 2:
+                # Referenzgröße beim ersten gültigen PDF setzen
+                if reference_width is None:
+                    reference_width = float(front_page.mediabox.width)
+                    reference_height = float(front_page.mediabox.height)
                     print(
-                        f"Info: PDF {pdf_path} hat {len(reader.pages)} Seiten, verwende nur die ersten 2"
+                        f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points"
                     )
 
-            # Referenzgröße beim ersten gültigen PDF setzen
-            if reference_width is None:
-                reference_width = float(front_page.mediabox.width)
-                reference_height = float(front_page.mediabox.height)
-                print(
-                    f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points"
-                )
+                all_front_pages.append(front_page)
+                all_back_pages.append(back_page)
 
-            all_front_pages.append(front_page)
-            all_back_pages.append(back_page)
+            else:
+                # PDF hat mehrere Seiten - extrahiere Paare
+                # Gerade Seiten (2, 4, 6, ...) = Vorderseiten (Index 1, 3, 5, ...)
+                # Ungerade Seiten (1, 3, 5, ...) = Rückseiten/Message (Index 0, 2, 4, ...)
+                num_pages = len(reader.pages)
+                num_pairs = num_pages // 2
+                
+                print(f"Info: PDF {pdf_path} hat {num_pages} Seiten, extrahiere {num_pairs} Postkarten-Paare")
+                
+                for pair_idx in range(num_pairs):
+                    front_page_idx = pair_idx * 2   # Gerade Seite: 1, 3, 5, ... (Front)
+                    back_page_idx = pair_idx * 2 + 1 # Ungerade Seite: 0, 2, 4, ... (Message)
+                    
+                    back_page = reader.pages[back_page_idx]
+                    front_page = reader.pages[front_page_idx]
+                    
+                    # Referenzgröße beim ersten gültigen PDF setzen
+                    if reference_width is None:
+                        reference_width = float(front_page.mediabox.width)
+                        reference_height = float(front_page.mediabox.height)
+                        print(
+                            f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points"
+                        )
+                    
+                    print(f"  Paar {pair_idx + 1}: Seite {back_page_idx + 1} (Message) + Seite {front_page_idx + 1} (Front)")
+                    
+                    all_front_pages.append(front_page)
+                    all_back_pages.append(back_page)
+                
+                # Falls ungerade Anzahl von Seiten, warnen
+                if num_pages % 2 != 0:
+                    print(f"Warnung: PDF {pdf_path} hat ungerade Seitenanzahl ({num_pages}), letzte Seite wird ignoriert")
 
         if not all_front_pages:
             print("Fehler: Keine gültigen PDFs gefunden")
             return False
+
+        # Berechne die tatsächliche Anzahl benötigter Grids basierend auf extrahierten Postkarten
+        total_postcards = len(all_front_pages)
+        grids_needed = (total_postcards + pages_per_grid - 1) // pages_per_grid  # Aufrunden
+        
+        print(f"\nGesamt extrahierte Postkarten: {total_postcards}")
+        print(f"Benötigte Grids: {grids_needed}")
+        print(f"Output wird {grids_needed * 2} Seiten haben")
 
         # Ausgabegröße berechnen (Grid-Größe + Outer Border)
         grid_width = reference_width * cols
@@ -217,7 +248,8 @@ def combine_and_merge_double_sided_pdfs(
             )
             writer.add_page(back_output_page)
 
-        # PDF speichern
+        # PDF speichern mit Komprimierung
+        writer.compress_identical_objects(True)
         with open(output_path, "wb") as output_file:
             writer.write(output_file)
 
@@ -242,6 +274,7 @@ def combine_and_merge_double_sided_pdfs(
         return False
 
 
+#TODO Depricated. Vermutlich nicht benötigt, da combine_and_merge_double_sided_pdfs mächtiger ist 
 def combine_double_sided_pdfs(
     pdf_paths: List[str],
     output_path: str,
@@ -303,24 +336,52 @@ def combine_double_sided_pdfs(
                 )
                 front_page = reader.pages[0]
                 back_page = reader.pages[0]  # Gleiche Seite für Vorder- und Rückseite
-            else:
-                front_page = reader.pages[0]
-                back_page = reader.pages[1]
-                if len(reader.pages) > 2:
+                
+                # Referenzgröße beim ersten PDF setzen
+                if reference_width is None:
+                    reference_width = float(front_page.mediabox.width)
+                    reference_height = float(front_page.mediabox.height)
                     print(
-                        f"Info: PDF {pdf_path} hat {len(reader.pages)} Seiten, verwende nur die ersten 2"
+                        f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points"
                     )
 
-            # Referenzgröße beim ersten PDF setzen
-            if reference_width is None:
-                reference_width = float(front_page.mediabox.width)
-                reference_height = float(front_page.mediabox.height)
-                print(
-                    f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points"
-                )
-
-            front_pages.append(front_page)
-            back_pages.append(back_page)
+                front_pages.append(front_page)
+                back_pages.append(back_page)
+            else:
+                # PDF hat mehrere Seiten - extrahiere Paare
+                # Gerade Seiten (2, 4, 6, ...) = Vorderseiten (Index 1, 3, 5, ...)
+                # Ungerade Seiten (1, 3, 5, ...) = Rückseiten/Message (Index 0, 2, 4, ...)
+                num_pages = len(reader.pages)
+                num_pairs = num_pages // 2
+                
+                print(f"Info: PDF {pdf_path} hat {num_pages} Seiten, extrahiere {num_pairs} Postkarten-Paare")
+                
+                for pair_idx in range(num_pairs):
+                    back_page_idx = pair_idx * 2  # Ungerade Seite: 0, 2, 4, ... (Message)
+                    front_page_idx = pair_idx * 2 + 1  # Gerade Seite: 1, 3, 5, ... (Front)
+                    
+                    back_page = reader.pages[back_page_idx]
+                    front_page = reader.pages[front_page_idx]
+                    
+                    # Referenzgröße beim ersten gültigen PDF setzen
+                    if reference_width is None:
+                        reference_width = float(front_page.mediabox.width)
+                        reference_height = float(front_page.mediabox.height)
+                        print(
+                            f"Referenzgröße: {reference_width:.1f} x {reference_height:.1f} points"
+                        )
+                    
+                    print(f"  Paar {pair_idx + 1}: Seite {back_page_idx + 1} (Message) + Seite {front_page_idx + 1} (Front)")
+                    
+                    front_pages.append(front_page)
+                    back_pages.append(back_page)
+                    
+                    if len(front_pages) >= pages_needed:
+                        break
+                
+                # Falls ungerade Anzahl von Seiten, warnen
+                if num_pages % 2 != 0:
+                    print(f"Warnung: PDF {pdf_path} hat ungerade Seitenanzahl ({num_pages}), letzte Seite wird ignoriert")
 
             if len(front_pages) >= pages_needed:
                 break
@@ -424,7 +485,8 @@ def combine_double_sided_pdfs(
         )
         writer.add_page(back_output_page)
 
-        # PDF speichern
+        # PDF speichern mit Komprimierung
+        writer.compress_identical_objects(True)
         with open(output_path, "wb") as output_file:
             writer.write(output_file)
 
