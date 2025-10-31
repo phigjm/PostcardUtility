@@ -222,6 +222,7 @@ def generate_back_side_pdf(
     message_area_ratio=0.5,
     enable_emoji=True,
     text_color="black",
+    url=None,
 ):
     """
     Generate the back side (text side) as a standalone PDF.
@@ -235,6 +236,7 @@ def generate_back_side_pdf(
     :param message_area_ratio: Ratio of message area width (default=0.5 for 50%)
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
+    :param url: Optional URL to display as QR code in bottom right corner (default=None)
     :return: Path to generated PDF
     """
     font_name = register_font(font_path)
@@ -249,6 +251,7 @@ def generate_back_side_pdf(
         message_area_ratio=message_area_ratio,
         enable_emoji=enable_emoji,
         text_color=text_color,
+        url=url,
     )
     c.save()
     return output_file
@@ -268,6 +271,7 @@ def generate_postcard(
     compression_quality=85,
     enable_emoji=True,
     text_color="black",
+    url=None,
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -285,6 +289,7 @@ def generate_postcard(
     :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
+    :param url: Optional URL to display as QR code in bottom right corner (default=None)
     """
     width, height = page_size
 
@@ -316,6 +321,7 @@ def generate_postcard(
             message_area_ratio=message_area_ratio,
             enable_emoji=enable_emoji,
             text_color=text_color,
+            url=url,
         )
         c.save()
 
@@ -371,6 +377,7 @@ def generate_postcard(
             message_area_ratio=message_area_ratio,
             enable_emoji=enable_emoji,
             text_color=text_color,
+            url=url,
         )
 
         # Save PDF
@@ -393,6 +400,7 @@ def generate_postcard_batch(
     compression_quality=85,
     enable_emoji=True,
     text_color="black",
+    url=None,
 ):
     """
     Generate multiple postcards in batch mode.
@@ -414,6 +422,7 @@ def generate_postcard_batch(
     :param compression_quality: JPEG quality for non-JPEG images (1-100, default=85)
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
+    :param url: Optional URL to display as QR code in bottom right corner (default=None)
     :return: List of generated file paths
     """
     if not messages_and_addresses:
@@ -476,6 +485,7 @@ def generate_postcard_batch(
                 message_area_ratio=message_area_ratio,
                 enable_emoji=enable_emoji,
                 text_color=text_color,
+                url=url,
             )
             c.save()
 
@@ -552,6 +562,7 @@ def generate_postcard_batch(
                 message_area_ratio=message_area_ratio,
                 enable_emoji=enable_emoji,
                 text_color=text_color,
+                url=url,
             )
             c.save()
 
@@ -604,6 +615,7 @@ def generate_postcard_batch(
                 compression_quality=compression_quality,
                 enable_emoji=enable_emoji,
                 text_color=text_color,
+                url=url,
             )
 
             generated_files.append(postcard_file)

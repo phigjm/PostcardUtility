@@ -7,6 +7,9 @@ from reportlab.lib.units import mm
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
 from reportlab.platypus import Paragraph, Frame
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics import renderPDF
 import logging
 
 # Import from modular components in text_rendering package
@@ -145,6 +148,88 @@ def _draw_stamp_box(canvas_obj, width, height, margin, font_name):
     )
 
 
+def _draw_qr_code_and_url(canvas_obj, url, width, height, margin, divider_x, font_name = "Courier", text_color="black"):
+    """
+    Draw QR code and rotated URL text on the divider line.
+    
+    QR code is positioned below the divider line, text is rotated 90° on the divider line 
+    and starts (bottom-left) at the bottom of the QR code.
+
+    :param canvas_obj: ReportLab canvas object
+    :param url: URL to encode in QR code and display
+    :param width: Page width
+    :param height: Page height
+    :param margin: Margin size
+    :param divider_x: X position of divider line
+    :param font_name: Font name
+    :param text_color: Text color for URL (default='black')
+    :return: Y position of the top of the QR code/text element (for divider line positioning)
+    """
+    # QR code settings - smaller size
+    qr_size = 10 * mm  # Size of the QR code (reduced from 15mm)
+
+    # Position QR code centered at bottom, below the divider line
+    # Move QR code lower (more margin below)
+    qr_x = divider_x - qr_size / 2  # Center on divider line
+    qr_y = margin - 7 * mm  # Move down by 3mm from margin
+    qr_y_top = qr_y + qr_size
+    
+    # Create QR code
+    qr_code = QrCodeWidget(url)
+    bounds = qr_code.getBounds()
+    qr_width = bounds[2] - bounds[0]
+    qr_height = bounds[3] - bounds[1]
+    
+    # Create drawing with proper scaling
+    d = Drawing(qr_size, qr_size, transform=[qr_size/qr_width, 0, 0, qr_size/qr_height, 0, 0])
+    d.add(qr_code)
+    
+    # Render QR code on canvas
+    renderPDF.draw(d, canvas_obj, qr_x, qr_y)
+    
+    # Draw rotated URL text on the divider line
+    r, g, b = get_color_rgb(text_color)
+    canvas_obj.setFillColorRGB(r, g, b)
+    
+    # Use Courier (monospace font) for URL - this is a standard PDF font
+    canvas_obj.setFont("Courier", 5)
+    
+    # Truncate URL if too long
+    display_url = url
+    if len(url) > 50:
+        # Try to extract domain
+        if "://" in url:
+            display_url = url.split("://")[1].split("/")[0]
+        else:
+            display_url = url[:27] + "..."
+    
+    # Draw URL text rotated 90° on the divider line
+    # Text starts (bottom-left) at the bottom of the QR code
+    # When rotated 90°, the "left" of the rotated text is at the bottom
+    text_x = divider_x + 0.3 * mm  # On the divider line
+    text_y = qr_y_top  # At the bottom of QR code
+    
+    # Save current canvas state
+    canvas_obj.saveState()
+    
+    # Translate to the position and rotate
+    canvas_obj.translate(text_x, text_y)
+    canvas_obj.rotate(90)
+    
+    # Draw the rotated text with left alignment (starts at origin, goes up)
+    canvas_obj.drawString(0, 0, display_url)
+    
+    # Calculate the width (which becomes height when rotated 90°) of the displayed URL text
+    text_width = canvas_obj.stringWidth(display_url, "Courier", 5)
+    
+    # Restore canvas state
+    canvas_obj.restoreState()
+    
+    # Return the Y position of the top of the QR code + rotated text length (for divider line positioning)
+    # When rotated 90°, the text extends upward, so we add the text width to qr_y_top
+    return qr_y_top + text_width+0.5 * mm  # Add small margin
+
+
 def _draw_debug_lines(
     canvas_obj,
     width,
@@ -225,6 +310,7 @@ def generate_back_side(
     message_area_ratio=0.5,
     enable_emoji=True,
     text_color="black",
+    url=None,
 ):
     """
     Generate the back side (text side) of a postcard on an existing canvas.
@@ -238,6 +324,7 @@ def generate_back_side(
     :param message_area_ratio: Ratio of message area width (default=0.5 for 50%)
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
+    :param url: Optional URL to display as QR code in bottom right corner (default=None)
     """
     width, height = page_size
     margin = 10 * mm
@@ -411,6 +498,11 @@ def generate_back_side(
     )
     _draw_stamp_box(c, width, height, margin, font_name)
 
+    # === DRAW QR CODE AND URL (if provided) ===
+    qr_code_top_y = None
+    if url:
+        qr_code_top_y = _draw_qr_code_and_url(c, url, width, height, margin, divider_x)
+
     # === OPTIONAL DEBUG LINES ===
     if show_debug_lines:
         _draw_debug_lines(
@@ -427,5 +519,13 @@ def generate_back_side(
         )
 
     # === DRAW DIVIDER LINE ===
+    # Calculate the Y position where the text starts (at the top of the text area)
+    text_top_y = height - margin
+    
+    # Use the calculated QR code top position if URL was provided
+    if qr_code_top_y is not None:
+        text_top_y = qr_code_top_y
+    
     c.setStrokeColorRGB(0, 0, 0)
-    c.line(divider_x, margin, divider_x, height - margin)
+    # Draw divider line from bottom margin to the top of the text area
+    c.line(divider_x, text_top_y, divider_x, height - margin)
