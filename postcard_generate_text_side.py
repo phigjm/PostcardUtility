@@ -51,6 +51,19 @@ def _draw_address_section(
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color name (default='black')
     """
+    # Check if address is an annotation (e.g., "Handwriting", "Handwritten", "Custom")
+    # These should not be printed on the postcard, just leave space empty
+    # Remove quotes for checking annotations
+    cleaned_address = address.replace('"', '').replace("'", '').lower().strip()
+    
+    # Only treat as annotation if it's exactly "handwriting" after stripping
+    is_annotation = cleaned_address == "handwriting"
+    
+    # If it's just an annotation, don't draw anything - leave space for handwriting
+    if is_annotation:
+        _LOGGER.debug(f"Address is annotation '{address}' - leaving space for handwriting")
+        return
+    
     # Get RGB color values
     r, g, b = get_color_rgb(text_color)
     
