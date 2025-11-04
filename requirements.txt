@@ -7,6 +7,10 @@ pillow
 requests
 emoji
 
+# Arabic text support (optional but recommended for RTL languages)
+arabic-reshaper
+python-bidi
+
 qrcode[pil]
 
 comtypes; sys_platform == "win32"
