@@ -35,6 +35,46 @@ from text_rendering import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _draw_handwriting_guide_lines(canvas_obj, divider_x, margin, height, width, num_lines=4, line_color=(0.8, 0.8, 0.8)):
+    """
+    Draw horizontal guide lines for handwriting in the address section.
+
+    :param canvas_obj: ReportLab canvas object
+    :param divider_x: X position of divider line
+    :param margin: Margin size
+    :param height: Page height
+    :param width: Page width
+    :param num_lines: Number of guide lines to draw (default=4)
+    :param line_color: Color of guide lines as RGB tuple (default=(0.8, 0.8, 0.8) - light gray)
+    """
+    # Set line color (light gray for guide lines)
+    canvas_obj.setStrokeColorRGB(*line_color)
+    canvas_obj.setLineWidth(0.5)
+    
+    # Address area starts from divider_x + margin and goes to the right edge - margin
+    addr_x_start = divider_x + margin
+    addr_x_end = width - margin
+    
+    # Address area: lines should be at the BOTTOM of the page
+    # Y coordinates: 0 is at bottom, height is at top
+    # So small Y values = bottom of page
+    # Start from bottom margin and go upward
+    addr_y_start = margin + 10   # Start at bottom margin
+    addr_y_end = addr_y_start + 120   # Extend upward 120mm from bottom margin
+    
+    # Calculate spacing between lines to distribute them evenly
+    available_height = addr_y_end - addr_y_start
+    line_spacing = available_height / (num_lines + 1)
+    
+    # Draw the specified number of horizontal lines
+    for i in range(num_lines):
+        y = addr_y_start + (i * line_spacing)
+        canvas_obj.line(addr_x_start, y, addr_x_end, y)
+    
+    # Reset line color to black
+    canvas_obj.setStrokeColorRGB(0, 0, 0)
+
+
 def _draw_address_section(
     canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True, text_color="black"
 ):
@@ -59,9 +99,11 @@ def _draw_address_section(
     # Only treat as annotation if it's exactly "handwriting" after stripping
     is_annotation = cleaned_address == "handwriting"
     
-    # If it's just an annotation, don't draw anything - leave space for handwriting
+    # If it's just an annotation, draw guide lines for handwriting
     if is_annotation:
-        _LOGGER.debug(f"Address is annotation '{address}' - leaving space for handwriting")
+        _LOGGER.debug(f"Address is annotation '{address}' - drawing guide lines for handwriting")
+        # Draw horizontal guide lines for handwriting
+        _draw_handwriting_guide_lines(canvas_obj, divider_x, margin, height, width)
         return
     
     # Get RGB color values
