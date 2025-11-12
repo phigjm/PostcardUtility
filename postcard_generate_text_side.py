@@ -106,6 +106,11 @@ def _draw_address_section(
         _draw_handwriting_guide_lines(canvas_obj, divider_x, margin, height, width)
         return
     
+    is_clean = cleaned_address == "clean"
+    if is_clean:
+        _LOGGER.debug(f"Address is clean '{address}' - dont add any address")
+        return
+    
     # Get RGB color values
     r, g, b = get_color_rgb(text_color)
     
