@@ -187,13 +187,34 @@ def find_optimal_font_size_for_paragraph(
     :param enable_emoji: Enable emoji support
     :return: (best_font_size, text_fits_completely, final_paragraph)
     """
-    # Add safety margin for emoji rendering variations (they can cause height variations)
-    # Reduce available height by 15pt to account for emoji rendering inconsistencies
-    safety_margin = 15 if enable_emoji else 0
-    adjusted_available_height = max(available_height - safety_margin, available_height * 0.85)
+    import emoji as emoji_lib
     
-    _LOGGER.debug(f"Font size optimization: available_height={available_height/mm:.1f}mm, "
-                  f"adjusted_height={adjusted_available_height/mm:.1f}mm (safety_margin={safety_margin}pt, enable_emoji={enable_emoji})")
+    # Calculate dynamic safety margin based on emoji density
+    # More emojis = larger safety margin needed due to ReportLab rendering quirks
+    safety_margin = 0
+    if enable_emoji:
+        emoji_count = len(emoji_lib.emoji_list(message))
+        line_count = len(message.splitlines())
+        emoji_density = emoji_count / max(line_count, 1)
+        
+        # Base safety margin for emoji support
+        safety_margin = 20
+        
+        # Additional margin for high emoji density (e.g., emoji-only lines)
+        if emoji_density > 2:  # More than 2 emojis per line on average
+            safety_margin += 15
+            _LOGGER.debug(f"High emoji density detected ({emoji_density:.1f} emojis/line): increasing safety margin to {safety_margin}pt")
+        
+        # Additional margin for many blank lines - INCREASED from 10pt to 20pt
+        blank_lines = sum(1 for line in message.splitlines() if not line.strip())
+        if blank_lines > 2:
+            safety_margin += (blank_lines * 2)  # 2pt per blank line
+            _LOGGER.debug(f"Many blank lines detected ({blank_lines}): increasing safety margin by {blank_lines * 2}pt to total {safety_margin}pt")
+    
+    adjusted_available_height = max(available_height - safety_margin, available_height * 0.80)
+    
+    _LOGGER.info(f"Font size optimization: available_height={available_height/mm:.1f}mm, "
+                 f"adjusted_height={adjusted_available_height/mm:.1f}mm (safety_margin={safety_margin}pt, emoji={enable_emoji})")
     
     style = ParagraphStyle(
         "MessageStyle",
@@ -230,9 +251,12 @@ def find_optimal_font_size_for_paragraph(
             text_fits = True
             final_para = para
             search_min = test_font_size + 1
+            _LOGGER.debug(f"  Font size {test_font_size}pt: height={h/mm:.1f}mm - FITS")
         else:
             search_max = test_font_size - 1
+            _LOGGER.debug(f"  Font size {test_font_size}pt: height={h/mm:.1f}mm - TOO LARGE")
 
+    _LOGGER.info(f"Best fitting font size: {best_fitting_size}pt with text_fits={text_fits}")
     return best_fitting_size, text_fits, final_para
 
 
@@ -263,6 +287,24 @@ def find_optimal_font_size_for_text(
     search_min = min_font_size
     search_max = max_font_size
 
+    # First, calculate the wrapped lines at MIN_FONT_SIZE (worst case)
+    canvas_obj.setFont(font_name, min_font_size)
+    min_wrapped_lines = []
+    for line in lines:
+        if line.strip():
+            line_font = get_font_for_text(line, font_name)
+            min_wrapped_lines.extend(
+                wrap_text_to_width(
+                    line, max_width, canvas_obj, line_font, min_font_size
+                )
+            )
+        else:
+            min_wrapped_lines.append("")
+    
+    # Ensure we always have at least the minimum font size result
+    best_wrapped_lines = min_wrapped_lines
+    best_fitting_size = min_font_size
+
     while search_min <= search_max:
         test_font_size = (search_min + search_max) // 2
         canvas_obj.setFont(font_name, test_font_size)
@@ -283,13 +325,16 @@ def find_optimal_font_size_for_text(
         line_height = get_font_line_height(font_name, test_font_size)
         total_text_height = len(test_wrapped_lines) * line_height
 
-        if total_text_height < available_height:
+        if total_text_height <= available_height:
             best_fitting_size = test_font_size
             best_wrapped_lines = test_wrapped_lines
             search_min = test_font_size + 1
+            _LOGGER.debug(f"  Font size {test_font_size}pt: {len(test_wrapped_lines)} lines, height={total_text_height/mm:.1f}mm - FITS")
         else:
             search_max = test_font_size - 1
+            _LOGGER.debug(f"  Font size {test_font_size}pt: {len(test_wrapped_lines)} lines, height={total_text_height/mm:.1f}mm - TOO LARGE")
 
+    _LOGGER.info(f"Best fitting font size: {best_fitting_size}pt with {len(best_wrapped_lines)} lines")
     return best_fitting_size, best_wrapped_lines
 
 
@@ -308,10 +353,40 @@ def truncate_paragraph_to_fit(
     :param enable_emoji: Enable emoji support
     :return: (truncated_paragraph, lines_used, total_lines)
     """
+    import emoji as emoji_lib
+    
+    # Calculate safety margin for truncation (same as optimization)
+    safety_margin = 0
+    if enable_emoji:
+        emoji_count = len(emoji_lib.emoji_list(message))
+        line_count = len(message.splitlines())
+        emoji_density = emoji_count / max(line_count, 1)
+        
+        safety_margin = 20
+        if emoji_density > 2:
+            safety_margin += 15
+        
+        blank_lines = sum(1 for line in message.splitlines() if not line.strip())
+        if blank_lines > 2:
+            safety_margin += (blank_lines * 2)  # 2pt per blank line
+    
+    # Use adjusted height for truncation (consistent with optimization)
+    adjusted_available_height = max(available_height - safety_margin, available_height * 0.80)
+    
+    _LOGGER.debug(f"Truncation: available_height={available_height/mm:.1f}mm, "
+                  f"adjusted_height={adjusted_available_height/mm:.1f}mm (safety_margin={safety_margin}pt)")
+    
     style.fontSize = font_size
-    style.leading = get_font_line_height(font_name, font_size)
-
+    default_leading = get_font_line_height(font_name, font_size)
+    
+    # Also reduce leading for high line count
     message_lines = message.splitlines()
+    if enable_emoji and len(message_lines) > 15:
+        style.leading = default_leading * 0.90
+        _LOGGER.debug(f"High line count in truncation: reducing leading from {default_leading:.2f}pt to {style.leading:.2f}pt")
+    else:
+        style.leading = default_leading
+
     max_lines = len(message_lines)
     min_lines = 1
     best_fit_lines = 1
@@ -325,13 +400,15 @@ def truncate_paragraph_to_fit(
         )
 
         para = Paragraph(processed_message, style)
-        w, h = para.wrap(max_width, available_height)
+        w, h = para.wrap(max_width, adjusted_available_height)
 
-        if h <= available_height:
+        if h <= adjusted_available_height:
             best_fit_lines = mid_lines
             min_lines = mid_lines + 1
+            _LOGGER.debug(f"  Truncate to {mid_lines} lines: height={h/mm:.1f}mm - FITS")
         else:
             max_lines = mid_lines - 1
+            _LOGGER.debug(f"  Truncate to {mid_lines} lines: height={h/mm:.1f}mm - TOO LARGE")
 
     # Create final truncated paragraph
     if best_fit_lines < len(message_lines):
@@ -345,5 +422,10 @@ def truncate_paragraph_to_fit(
         truncated_message, enable_emoji, font_size, text_color
     )
     para = Paragraph(processed_message, style)
+    
+    # Final verification
+    w, h = para.wrap(max_width, available_height)
+    if h > available_height:
+        _LOGGER.warning(f"Final truncated paragraph still exceeds height: {h/mm:.1f}mm > {available_height/mm:.1f}mm")
 
     return para, best_fit_lines, len(message_lines)
