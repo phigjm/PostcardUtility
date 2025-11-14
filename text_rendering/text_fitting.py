@@ -8,6 +8,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.platypus import Paragraph, Frame
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.enums import TA_LEFT, TA_RIGHT
+from reportlab.lib.units import mm
 from .text_processing import prepare_text_with_language_fonts
 from .language_support import contains_arabic, contains_cjk, get_font_for_text
 
@@ -186,6 +187,14 @@ def find_optimal_font_size_for_paragraph(
     :param enable_emoji: Enable emoji support
     :return: (best_font_size, text_fits_completely, final_paragraph)
     """
+    # Add safety margin for emoji rendering variations (they can cause height variations)
+    # Reduce available height by 15pt to account for emoji rendering inconsistencies
+    safety_margin = 15 if enable_emoji else 0
+    adjusted_available_height = max(available_height - safety_margin, available_height * 0.85)
+    
+    _LOGGER.debug(f"Font size optimization: available_height={available_height/mm:.1f}mm, "
+                  f"adjusted_height={adjusted_available_height/mm:.1f}mm (safety_margin={safety_margin}pt, enable_emoji={enable_emoji})")
+    
     style = ParagraphStyle(
         "MessageStyle",
         fontName=font_name,
@@ -214,9 +223,9 @@ def find_optimal_font_size_for_paragraph(
         )
 
         para = Paragraph(processed_message, style)
-        w, h = para.wrap(max_width, available_height)
+        w, h = para.wrap(max_width, adjusted_available_height)
 
-        if h <= available_height:
+        if h <= adjusted_available_height:
             best_fitting_size = test_font_size
             text_fits = True
             final_para = para
