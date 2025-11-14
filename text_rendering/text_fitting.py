@@ -271,6 +271,7 @@ def find_optimal_font_size_for_text(
 ):
     """
     Find optimal font size using binary search for text-based rendering.
+    Always returns at least min_font_size result as fallback.
 
     :param message: Text message
     :param max_width: Maximum width
@@ -281,47 +282,28 @@ def find_optimal_font_size_for_text(
     :param max_font_size: Maximum font size to try
     :return: (best_font_size, wrapped_lines)
     """
-    lines = message.splitlines()
+    def wrap_message_at_size(text, size):
+        """Helper to wrap entire message at a specific font size."""
+        canvas_obj.setFont(font_name, size)
+        wrapped = []
+        for line in text.splitlines():
+            if line.strip():
+                line_font = get_font_for_text(line, font_name)
+                wrapped.extend(wrap_text_to_width(line, max_width, canvas_obj, line_font, size))
+            else:
+                wrapped.append("")
+        return wrapped
+
+    # Start with minimum font size as baseline
+    best_wrapped_lines = wrap_message_at_size(message, min_font_size)
     best_fitting_size = min_font_size
-    best_wrapped_lines = []
     search_min = min_font_size
     search_max = max_font_size
 
-    # First, calculate the wrapped lines at MIN_FONT_SIZE (worst case)
-    canvas_obj.setFont(font_name, min_font_size)
-    min_wrapped_lines = []
-    for line in lines:
-        if line.strip():
-            line_font = get_font_for_text(line, font_name)
-            min_wrapped_lines.extend(
-                wrap_text_to_width(
-                    line, max_width, canvas_obj, line_font, min_font_size
-                )
-            )
-        else:
-            min_wrapped_lines.append("")
-    
-    # Ensure we always have at least the minimum font size result
-    best_wrapped_lines = min_wrapped_lines
-    best_fitting_size = min_font_size
-
+    # Binary search for optimal size
     while search_min <= search_max:
         test_font_size = (search_min + search_max) // 2
-        canvas_obj.setFont(font_name, test_font_size)
-        test_wrapped_lines = []
-
-        for line in lines:
-            if line.strip():
-                # Get appropriate font for this line
-                line_font = get_font_for_text(line, font_name)
-                test_wrapped_lines.extend(
-                    wrap_text_to_width(
-                        line, max_width, canvas_obj, line_font, test_font_size
-                    )
-                )
-            else:
-                test_wrapped_lines.append("")
-
+        test_wrapped_lines = wrap_message_at_size(message, test_font_size)
         line_height = get_font_line_height(font_name, test_font_size)
         total_text_height = len(test_wrapped_lines) * line_height
 

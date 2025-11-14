@@ -444,12 +444,12 @@ def generate_back_side(
                 enable_emoji=enable_emoji,
                 text_color=text_color,
             )
-            print(f"[PARAGRAPH MODE] Optimal font size found: {font_size}pt, text_fits: {text_fits}, has emoji: {enable_emoji}")
+            print(f"[PARAGRAPH MODE] Font size: {font_size}pt, fits: {text_fits}")
         else:
             # Skip optimization, use minimum font size
             font_size = MIN_FONT_SIZE
             para = None
-            print(f"[PARAGRAPH MODE] Skipping optimization, using minimum font size: {font_size}pt")
+            print(f"[PARAGRAPH MODE] Using minimum font size: {font_size}pt")
 
         # Handle truncation if text doesn't fit
         if not text_fits:
@@ -487,49 +487,22 @@ def generate_back_side(
             )
             para = Paragraph(processed_message, style)
         
-        # Check paragraph dimensions before drawing
+        # Check paragraph dimensions and fallback if needed
         w, h = para.wrap(max_width, available_height)
-        print(f"[PARAGRAPH MODE] Paragraph dimensions: width={w:.2f}pt, height={h:.2f}pt")
-        print(f"[PARAGRAPH MODE] Available space: width={max_width:.2f}pt, height={available_height:.2f}pt")
         
-        # If paragraph exceeds available height, try progressively smaller solutions
-        fallback_attempts = 0
-        leading_reduction_factor = 1.0  # Start at 100%
-        
-        while h > available_height and fallback_attempts < 5:
-            fallback_attempts += 1
-            excess_height = h - available_height
-            print(f"[PARAGRAPH MODE] WARNING: Paragraph height {h:.2f}pt exceeds available height {available_height:.2f}pt by {excess_height:.2f}pt!")
-            
-            # First 3 attempts: reduce font size
-            if font_size > MIN_FONT_SIZE:
-                new_font_size = font_size - 1
-                print(f"[PARAGRAPH MODE] Attempting fallback (attempt {fallback_attempts}/5): reduce font size to {new_font_size}pt")
-                style.fontSize = new_font_size
-                style.leading = get_font_line_height(font_name, new_font_size)
-                font_size = new_font_size
-            else:
-                # If already at min font size, reduce leading instead
-                leading_reduction_factor -= 0.05  # Reduce by 5% each time
-                new_leading = style.leading * leading_reduction_factor
-                print(f"[PARAGRAPH MODE] Attempting fallback (attempt {fallback_attempts}/5): reduce leading from {style.leading:.2f}pt to {new_leading:.2f}pt ({leading_reduction_factor*100:.0f}%)")
-                style.leading = new_leading
-            
+        if h > available_height:
+            print(f"[PARAGRAPH MODE] Text exceeds height: {h:.0f}pt > {available_height:.0f}pt, reducing leading...")
+            # Reduce leading by 5% to fit
+            style.leading = style.leading * 0.95
             processed_message = prepare_text_with_language_fonts(
                 message, enable_emoji, font_size, text_color
             )
             para = Paragraph(processed_message, style)
             w, h = para.wrap(max_width, available_height)
             
-            if h <= available_height:
-                print(f"[PARAGRAPH MODE] ✓ Fallback #{fallback_attempts} successful: width={w:.2f}pt, height={h:.2f}pt - NOW FITS!")
-                break
-            else:
-                print(f"[PARAGRAPH MODE] Fallback #{fallback_attempts} result: height={h:.2f}pt (still {h - available_height:.2f}pt too large)")
-        
-        if h > available_height:
-            print(f"[PARAGRAPH MODE] ✗ CRITICAL: Text still doesn't fit after {fallback_attempts} fallback attempts!")
-            print(f"[PARAGRAPH MODE] Forcing render anyway - text may be clipped or disappear!")
+            if h > available_height:
+                _LOGGER.warning(f"Text still exceeds height by {h - available_height:.0f}pt. Rendering anyway.")
+                print(f"[PARAGRAPH MODE] ⚠ Rendering with overflow")
 
         # Draw the paragraph
         frame = Frame(
@@ -543,21 +516,17 @@ def generate_back_side(
             topPadding=0,
             showBoundary=0,
         )
-        # Ensure paragraph has no internal spacing that could create white borders
         para.leftIndent = 0
         para.rightIndent = 0
         para.spaceBefore = 0
         para.spaceAfter = 0
-        print(f"[PARAGRAPH MODE] Drawing paragraph in frame at margin={margin/mm:.1f}mm, bottom_margin={bottom_margin/mm:.1f}mm")
         frame.addFromList([para], c)
         final_line_height = style.leading
 
     # === TEXT MODE (Text-based rendering without special needs) ===
     else:
-        print(f"[TEXT MODE] Entering text mode for message: {len(message)} characters, {len(message.splitlines())} lines")
         if text_fits is None:
             # Run binary search optimization
-            print(f"[TEXT MODE] Running font size optimization...")
             font_size, wrapped_lines = find_optimal_font_size_for_text(
                 message,
                 max_width,
@@ -567,9 +536,7 @@ def generate_back_side(
                 MIN_FONT_SIZE,
                 DEFAULT_FONT_SIZE,
             )
-            print(f"[TEXT MODE] Optimal font size found: {font_size}pt, wrapped into {len(wrapped_lines)} lines")
-            if len(wrapped_lines) == 0:
-                print(f"[TEXT MODE] WARNING: No wrapped lines returned! This means text doesn't fit even at MIN_FONT_SIZE={MIN_FONT_SIZE}pt")
+            print(f"[TEXT MODE] Font size: {font_size}pt, {len(wrapped_lines)} lines")
         else:
             # Skip optimization, use minimum font size
             font_size = MIN_FONT_SIZE
@@ -578,7 +545,6 @@ def generate_back_side(
             c.setFont(font_name, font_size)
             for line in lines:
                 if line.strip():
-                    # Get appropriate font for this line
                     line_font = get_font_for_text(line, font_name)
                     wrapped_lines.extend(
                         wrap_text_to_width(
@@ -587,61 +553,27 @@ def generate_back_side(
                     )
                 else:
                     wrapped_lines.append("")
-            print(f"[TEXT MODE] Using minimum font size: {font_size}pt, wrapped into {len(wrapped_lines)} lines")
+            print(f"[TEXT MODE] Using minimum font size: {font_size}pt, {len(wrapped_lines)} lines")
 
         # Calculate line height
         c.setFont(font_name, font_size)
         final_line_height = get_font_line_height(font_name, font_size)
 
-        # Sanity check: if we have 0 lines, something went wrong
-        if len(wrapped_lines) == 0:
-            print(f"[TEXT MODE] CRITICAL: Got 0 wrapped lines! Forcing at least one line of text.")
-            # Force wrap the message at min font size
-            c.setFont(font_name, MIN_FONT_SIZE)
-            for line in message.splitlines():
-                if line.strip():
-                    line_font = get_font_for_text(line, font_name)
-                    wrapped_lines.extend(
-                        wrap_text_to_width(
-                            line, max_width, c, line_font, MIN_FONT_SIZE
-                        )
-                    )
-                else:
-                    wrapped_lines.append("")
-            
-            if len(wrapped_lines) == 0:
-                # Last resort: just add the first line
-                print(f"[TEXT MODE] Last resort: creating single line from first 50 chars")
-                wrapped_lines = [message[:50]]
-            
-            font_size = MIN_FONT_SIZE
-            final_line_height = get_font_line_height(font_name, MIN_FONT_SIZE)
-            print(f"[TEXT MODE] After sanity fix: {len(wrapped_lines)} lines at {font_size}pt")
-
         # Truncate if necessary
         if len(wrapped_lines) * final_line_height >= available_height:
             max_lines = int(available_height / final_line_height)
-            _LOGGER.warning(
-                f"Message is too long to fit on postcard even at minimum font size {font_size}pt. "
-                f"Message will be truncated from {len(wrapped_lines)} lines to {max_lines} lines. "
-                f"Original message length: {len(message)} characters."
-            )
+            print(f"[TEXT MODE] Text too long: truncating from {len(wrapped_lines)} to {max_lines} lines")
             wrapped_lines = wrapped_lines[:max_lines]
             if max_lines > 0:
                 wrapped_lines[-1] = wrapped_lines[-1] + " [...]"
 
-        # Draw text (set font per-line depending on content)
-        # Get RGB color values for message
+        # Draw text
         r, g, b = get_color_rgb(text_color)
         y = height - margin - font_size
         for line in wrapped_lines:
-            # Set appropriate font for each line
             line_font = get_font_for_text(line, font_name)
             c.setFont(line_font, font_size)
-
-            # Set text color
             c.setFillColorRGB(r, g, b)
-
             c.drawString(margin, y, line)
             y -= final_line_height
 
