@@ -171,6 +171,7 @@ def find_optimal_font_size_for_paragraph(
     max_font_size=DEFAULT_FONT_SIZE,
     alignment=TA_LEFT,
     enable_emoji=True,
+    text_color="black",
 ):
     """
     Find optimal font size using binary search for Paragraph-based rendering.
@@ -209,7 +210,7 @@ def find_optimal_font_size_for_paragraph(
         style.leading = get_font_line_height(font_name, test_font_size)
 
         processed_message = prepare_text_with_language_fonts(
-            message, enable_emoji, test_font_size
+            message, enable_emoji, test_font_size, text_color
         )
 
         para = Paragraph(processed_message, style)
@@ -284,7 +285,7 @@ def find_optimal_font_size_for_text(
 
 
 def truncate_paragraph_to_fit(
-    message, max_width, available_height, font_name, font_size, style, enable_emoji=True
+    message, max_width, available_height, font_name, font_size, style, enable_emoji=True, text_color="black"
 ):
     """
     Truncate message to fit available space using binary search.
@@ -311,7 +312,7 @@ def truncate_paragraph_to_fit(
         truncated_message = "\n".join(message_lines[:mid_lines])
 
         processed_message = prepare_text_with_language_fonts(
-            truncated_message, enable_emoji, font_size
+            truncated_message, enable_emoji, font_size, text_color
         )
 
         para = Paragraph(processed_message, style)
@@ -332,7 +333,7 @@ def truncate_paragraph_to_fit(
         truncated_message = message
 
     processed_message = prepare_text_with_language_fonts(
-        truncated_message, enable_emoji, font_size
+        truncated_message, enable_emoji, font_size, text_color
     )
     para = Paragraph(processed_message, style)
 

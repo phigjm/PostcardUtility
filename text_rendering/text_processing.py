@@ -158,13 +158,14 @@ def process_text_for_rendering(text, font_size, enable_emoji=True):
     return text
 
 
-def prepare_text_with_language_fonts(text, enable_emoji=True, font_size=12):
+def prepare_text_with_language_fonts(text, enable_emoji=True, font_size=12, text_color="black"):
     """
     Prepare text for ReportLab Paragraph rendering with proper font tags and emoji support.
     
     :param text: Raw text to prepare
     :param enable_emoji: Whether to replace emojis with images
     :param font_size: Font size for emoji sizing
+    :param text_color: Text color name or hex code (default='black')
     :return: HTML-formatted text ready for Paragraph rendering
     """
     # Process for emoji and Arabic RTL
@@ -187,6 +188,17 @@ def prepare_text_with_language_fonts(text, enable_emoji=True, font_size=12):
     # Escape HTML and convert newlines
     processed_text = escape_html_except_tags(processed_text)
     processed_text = processed_text.replace("\n", "<br/>")
+    
+    # Convert text color to hex format for HTML font tag
+    rgb = get_color_rgb(text_color)
+    hex_color = "#{:02x}{:02x}{:02x}".format(
+        int(rgb[0] * 255),
+        int(rgb[1] * 255),
+        int(rgb[2] * 255)
+    )
+    
+    # Wrap entire text in a font tag with the specified color
+    processed_text = f'<font color="{hex_color}">{processed_text}</font>'
     
     return processed_text
 

@@ -10,6 +10,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.graphics.shapes import Drawing
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics import renderPDF
+from reportlab.lib.colors import Color
 import logging
 
 # Import from modular components in text_rendering package
@@ -135,11 +136,12 @@ def _draw_address_section(
             rightIndent=0,
             spaceBefore=0,
             spaceAfter=0,
+            textColor=Color(r, g, b),
         )
 
         # Process address with proper language and emoji support
         processed_address = prepare_text_with_language_fonts(
-            address, enable_emoji, address_font_size
+            address, enable_emoji, address_font_size, text_color
         )
 
         para = Paragraph(processed_address, style)
@@ -389,6 +391,8 @@ def generate_back_side(
     width, height = page_size
     margin = 10 * mm
 
+    print("Text resived ", message)
+
     # Calculate layout dimensions
     divider_x = width * message_area_ratio
     max_width = divider_x - 2 * margin
@@ -423,6 +427,7 @@ def generate_back_side(
             rightIndent=0,
             spaceBefore=0,
             spaceAfter=0,
+            textColor=Color(*get_color_rgb(text_color)),
         )
 
         # Determine font size and create paragraph
@@ -437,6 +442,7 @@ def generate_back_side(
                 DEFAULT_FONT_SIZE,
                 alignment=alignment,
                 enable_emoji=enable_emoji,
+                text_color=text_color,
             )
         else:
             # Skip optimization, use minimum font size
@@ -451,7 +457,7 @@ def generate_back_side(
             )
 
             para, lines_used, total_lines = truncate_paragraph_to_fit(
-                message, max_width, available_height, font_name, MIN_FONT_SIZE, style, enable_emoji
+                message, max_width, available_height, font_name, MIN_FONT_SIZE, style, enable_emoji, text_color
             )
 
             if lines_used < total_lines:
@@ -466,7 +472,7 @@ def generate_back_side(
             style.fontSize = font_size
             style.leading = get_font_line_height(font_name, font_size)
             processed_message = prepare_text_with_language_fonts(
-                message, enable_emoji, font_size
+                message, enable_emoji, font_size, text_color
             )
             para = Paragraph(processed_message, style)
 
