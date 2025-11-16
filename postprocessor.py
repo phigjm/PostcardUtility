@@ -1,8 +1,16 @@
-from crop_to_size import process_pdf_for_print
-from draw_bleed_area import draw_cutting_area
-from set_crop_markers import add_crop_marks_to_pdf
-import postcardformats
-from convert_CMYK import convertPDFtoCMYK
+# Try relative import first (when used as module), fall back to direct import (when run standalone)
+try:
+    from .crop_to_size import process_pdf_for_print
+    from .draw_bleed_area import draw_cutting_area
+    from .set_crop_markers import add_crop_marks_to_pdf
+    from . import postcardformats
+    from .convert_CMYK import convertPDFtoCMYK
+except ImportError:
+    from crop_to_size import process_pdf_for_print
+    from draw_bleed_area import draw_cutting_area
+    from set_crop_markers import add_crop_marks_to_pdf
+    import postcardformats
+    from convert_CMYK import convertPDFtoCMYK
 
 
 def process_postcard(input_pdf, printversion_pdf, preview_version_pdf):
