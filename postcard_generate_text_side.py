@@ -373,6 +373,7 @@ def generate_back_side(
     enable_emoji=True,
     text_color="black",
     url=None,
+    warnings=None,
 ):
     """
     Generate the back side (text side) of a postcard on an existing canvas.
@@ -387,7 +388,10 @@ def generate_back_side(
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
+    :param warnings: Optional dict to collect warnings (e.g., truncation warnings)
     """
+    if warnings is None:
+        warnings = {}
     width, height = page_size
     margin = 10 * mm
 
@@ -466,6 +470,13 @@ def generate_back_side(
                 _LOGGER.warning(
                     f"Message truncated to {lines_used} of {total_lines} lines to fit on postcard."
                 )
+                # Add warning for truncation
+                warnings['message_truncated'] = {
+                    'truncated': True,
+                    'original_lines': total_lines,
+                    'truncated_to_lines': lines_used,
+                    'mode': 'paragraph'
+                }
 
             font_size = MIN_FONT_SIZE
 
@@ -563,9 +574,19 @@ def generate_back_side(
         if len(wrapped_lines) * final_line_height >= available_height:
             max_lines = int(available_height / final_line_height)
             print(f"[TEXT MODE] Text too long: truncating from {len(wrapped_lines)} to {max_lines} lines")
+            original_length = len(wrapped_lines)
             wrapped_lines = wrapped_lines[:max_lines]
             if max_lines > 0:
                 wrapped_lines[-1] = wrapped_lines[-1] + " [...]"
+                #TODO write ERror message instead of [...]
+            
+            # Add warning for truncation
+            warnings['message_truncated'] = {
+                'truncated': True,
+                'original_lines': original_length,
+                'truncated_to_lines': max_lines,
+                'mode': 'text'
+            }
 
         # Draw text
         r, g, b = get_color_rgb(text_color)

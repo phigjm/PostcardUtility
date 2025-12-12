@@ -223,6 +223,7 @@ def generate_back_side_pdf(
     enable_emoji=True,
     text_color="black",
     url=None,
+    warnings=None,
 ):
     """
     Generate the back side (text side) as a standalone PDF.
@@ -237,8 +238,11 @@ def generate_back_side_pdf(
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
+    :param warnings: Optional dict to collect warnings
     :return: Path to generated PDF
     """
+    if warnings is None:
+        warnings = {}
     font_name = register_font(font_path)
     c = canvas.Canvas(output_file, pagesize=page_size, compress=True)
     generate_back_side(
@@ -252,6 +256,7 @@ def generate_back_side_pdf(
         enable_emoji=enable_emoji,
         text_color=text_color,
         url=url,
+        warnings=warnings,
     )
     c.save()
     return output_file
@@ -272,6 +277,7 @@ def generate_postcard(
     enable_emoji=True,
     text_color="black",
     url=None,
+    warnings=None,
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -290,7 +296,10 @@ def generate_postcard(
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
+    :param warnings: Optional dict to collect warnings
     """
+    if warnings is None:
+        warnings = {}
     width, height = page_size
 
     # Set up emoji cache directory if emoji support is enabled
@@ -322,6 +331,7 @@ def generate_postcard(
             enable_emoji=enable_emoji,
             text_color=text_color,
             url=url,
+            warnings=warnings,
         )
         c.save()
 
@@ -378,6 +388,7 @@ def generate_postcard(
             enable_emoji=enable_emoji,
             text_color=text_color,
             url=url,
+            warnings=warnings,
         )
 
         # Save PDF
@@ -401,6 +412,7 @@ def generate_postcard_batch(
     enable_emoji=True,
     text_color="black",
     url=None,
+    warnings=None,
 ):
     """
     Generate multiple postcards in batch mode.
@@ -423,8 +435,11 @@ def generate_postcard_batch(
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
+    :param warnings: Optional dict to collect warnings
     :return: List of generated file paths
     """
+    if warnings is None:
+        warnings = {}
     if not messages_and_addresses:
         raise ValueError("messages_and_addresses list cannot be empty")
 
@@ -486,6 +501,7 @@ def generate_postcard_batch(
                 enable_emoji=enable_emoji,
                 text_color=text_color,
                 url=url,
+                warnings=warnings,
             )
             c.save()
 
@@ -563,6 +579,7 @@ def generate_postcard_batch(
                 enable_emoji=enable_emoji,
                 text_color=text_color,
                 url=url,
+                warnings=warnings,
             )
             c.save()
 
