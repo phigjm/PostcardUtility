@@ -210,6 +210,48 @@ def _draw_stamp_box(canvas_obj, width, height, margin, font_name):
     )
 
 
+def _draw_priority_label(canvas_obj, width, height, margin, divider_x, font_name):
+    """
+    Draw a priority label for international postcards on the right side near the divider line.
+    
+    :param canvas_obj: ReportLab canvas object
+    :param width: Page width
+    :param height: Page height
+    :param margin: Margin size
+    :param divider_x: X position of divider line
+    :param font_name: Font name
+    """
+    label_width = 19 * mm
+    label_height = 6 * mm
+    distance_to_divider = 2 * mm
+    
+    # Position on the right side, near the divider line
+    label_x = divider_x - label_width/2 + label_height/2 +distance_to_divider# Links rechts
+    label_y = height - margin - label_height/2  - label_width/2 # höhe
+    
+    # Save current state for rotation
+    canvas_obj.saveState()
+    
+    # Translate to label position and rotate 15 degrees
+    canvas_obj.translate(label_x + label_width / 2, label_y + label_height / 2)
+    canvas_obj.rotate(90)  # Rotate 15 degrees
+    
+    # Draw rounded rectangle background - complete blue
+    blue_rgb = (3/255, 69/255, 147/255)  # RGB(3, 69, 147)
+    canvas_obj.setFillColorRGB(*blue_rgb)
+    canvas_obj.setStrokeColorRGB(*blue_rgb)
+    canvas_obj.setLineWidth(0.5)
+    canvas_obj.roundRect(-label_width/2, -label_height/2, label_width, label_height, 2 * mm, fill=1, stroke=1)
+    
+    # Draw white text
+    canvas_obj.setFillColorRGB(1, 1, 1)  # White text
+    canvas_obj.setFont(font_name, 7)
+    canvas_obj.drawCentredString(0, -2.5, "PRIORITY ✈")
+    
+    # Restore canvas state
+    canvas_obj.restoreState()
+
+
 def _draw_qr_code_and_url(canvas_obj, url, width, height, margin, divider_x, font_name = "Courier", text_color="black"):
     """
     Draw QR code and rotated URL text on the divider line.
@@ -374,6 +416,7 @@ def generate_back_side(
     text_color="black",
     url=None,
     warnings=None,
+    category=None,
 ):
     """
     Generate the back side (text side) of a postcard on an existing canvas.
@@ -603,6 +646,10 @@ def generate_back_side(
         c, address, divider_x, margin, height, font_name, width, enable_emoji, text_color
     )
     _draw_stamp_box(c, width, height, margin, font_name)
+    
+    # === DRAW PRIORITY LABEL FOR INTERNATIONAL POSTCARDS ===
+    if category == "DE_INT":
+        _draw_priority_label(c, width, height, margin, divider_x, "Helvetica-Bold")
 
     # === DRAW QR CODE AND URL (if provided) ===
     qr_code_top_y = None
