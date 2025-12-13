@@ -77,7 +77,7 @@ def _draw_handwriting_guide_lines(canvas_obj, divider_x, margin, height, width, 
 
 
 def _draw_address_section(
-    canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True, text_color="black"
+    canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True, text_color="black", warnings=None
 ):
     """
     Draw the address section on the right side of the postcard.
@@ -91,7 +91,10 @@ def _draw_address_section(
     :param width: Page width
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color name (default='black')
+    :param warnings: Optional dict to collect warnings (e.g., overflow warnings)
     """
+    if warnings is None:
+        warnings = {}
     # Check if address is an annotation (e.g., "Handwriting", "Handwritten", "Custom")
     # These should not be printed on the postcard, just leave space empty
     # Remove quotes for checking annotations
@@ -117,6 +120,9 @@ def _draw_address_section(
     
     addr_x = divider_x + margin
     address_font_size = 12
+
+    # Calculate available width for address
+    available_width = width - divider_x - 2 * margin
 
     # Check if address has special rendering needs
     needs_paragraph = has_special_rendering_needs(address, enable_emoji)
@@ -146,11 +152,18 @@ def _draw_address_section(
 
         para = Paragraph(processed_address, style)
 
-        # Calculate available width for address
-        available_width = width - divider_x - 2 * margin
-
         # Wrap and get height
         w, h = para.wrap(available_width, height)
+
+        # Check for overflow
+        if w > available_width:
+            _LOGGER.warning(f"Address text overflows available width: {w:.1f}pt > {available_width:.1f}pt")
+            warnings['address_overflow'] = {
+                'overflow': True,
+                'required_width': w,
+                'available_width': available_width,
+                'mode': 'paragraph'
+            }
 
         # Position address (starting from bottom + 40mm offset)
         addr_y = margin + 40
@@ -182,6 +195,19 @@ def _draw_address_section(
             # Set appropriate font for each line
             line_font = get_font_for_text(line, font_name)
             canvas_obj.setFont(line_font, address_font_size)
+            line_width = canvas_obj.stringWidth(line, line_font, address_font_size)
+            if line_width > available_width:
+                _LOGGER.warning(f"Address line overflows available width: '{line}' ({line_width:.1f}pt > {available_width:.1f}pt)")
+                if 'address_overflow' not in warnings:
+                    warnings['address_overflow'] = {
+                        'overflow': True,
+                        'lines': []
+                    }
+                warnings['address_overflow']['lines'].append({
+                    'line': line,
+                    'width': line_width,
+                    'available_width': available_width
+                })
             canvas_obj.drawString(addr_x, addr_y, line)
             addr_y -= line_height
 
@@ -643,7 +669,7 @@ def generate_back_side(
 
     # === DRAW ADDRESS AND STAMP ===
     _draw_address_section(
-        c, address, divider_x, margin, height, font_name, width, enable_emoji, text_color
+        c, address, divider_x, margin, height, font_name, width, enable_emoji, text_color, warnings
     )
     _draw_stamp_box(c, width, height, margin, font_name)
     
