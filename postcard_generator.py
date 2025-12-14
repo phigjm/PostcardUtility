@@ -33,9 +33,11 @@ def register_font(font_path):
                 print("Available built-in fonts: Helvetica, Times-Roman, Courier")
                 font_name = "Helvetica"  # Fallback to built-in font
             else:
-                pdfmetrics.registerFont(TTFont("CustomFont", font_path))
-                font_name = "CustomFont"
-                print(f"Successfully loaded font: {font_path}")
+                # Derive font name from filename (without extension)
+                font_base_name = os.path.splitext(os.path.basename(font_path))[0]
+                pdfmetrics.registerFont(TTFont(font_base_name, font_path))
+                font_name = font_base_name
+                print(f"Successfully loaded font: {font_path} as '{font_name}'")
         except Exception as e:
             print(f"ERROR loading font {font_path}: {e}")
             print("Falling back to Helvetica")
