@@ -227,6 +227,7 @@ def generate_back_side_pdf(
     url=None,
     warnings=None,
     category=None,
+    sender_text="",
 ):
     """
     Generate the back side (text side) as a standalone PDF.
@@ -261,6 +262,7 @@ def generate_back_side_pdf(
         url=url,
         warnings=warnings,
         category=category,
+        sender_text=sender_text,
     )
     c.save()
     return output_file
@@ -283,6 +285,7 @@ def generate_postcard(
     url=None,
     warnings=None,
     category=None,
+    sender_text="",
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -338,6 +341,7 @@ def generate_postcard(
             url=url,
             warnings=warnings,
             category=category,
+            sender_text=sender_text,
         )
         c.save()
 
@@ -396,6 +400,7 @@ def generate_postcard(
             url=url,
             warnings=warnings,
             category=category,
+            sender_text=sender_text,
         )
 
         # Save PDF
@@ -421,6 +426,7 @@ def generate_postcard_batch(
     url=None,
     warnings=None,
     category=None,
+    sender_text="",
 ):
     """
     Generate multiple postcards in batch mode.
@@ -511,6 +517,7 @@ def generate_postcard_batch(
                 url=url,
                 warnings=warnings,
                 category=category,
+                sender_text=sender_text,
             )
             c.save()
 
@@ -590,6 +597,7 @@ def generate_postcard_batch(
                 url=url,
                 warnings=warnings,
                 category=category,
+                sender_text=sender_text,
             )
             c.save()
 
@@ -643,6 +651,7 @@ def generate_postcard_batch(
                 enable_emoji=enable_emoji,
                 text_color=text_color,
                 url=url,
+                sender_text=sender_text,
             )
 
             generated_files.append(postcard_file)

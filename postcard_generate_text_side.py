@@ -77,7 +77,7 @@ def _draw_handwriting_guide_lines(canvas_obj, divider_x, margin, height, width, 
 
 
 def _draw_address_section(
-    canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True, text_color="black", warnings=None
+        canvas_obj, address, divider_x, margin, height, font_name, width, enable_emoji=True, text_color="black", warnings=None, sender_text=""
 ):
     """
     Draw the address section on the right side of the postcard.
@@ -165,8 +165,11 @@ def _draw_address_section(
                 'mode': 'paragraph'
             }
 
-        # Position address (starting from bottom + 40mm offset)
-        addr_y = margin + 40
+        # Position address (starting from bottom + 10mm offset to make more room for sender text)
+        addr_y = margin + 10
+
+        # Calculate sender text position
+        sender_y = addr_y + h + 10  # Position above address, relative to address height
 
         # Draw using Frame
         frame = Frame(
@@ -189,7 +192,10 @@ def _draw_address_section(
         address_lines = address.splitlines()
         line_height = 14
         total_address_height = len(address_lines) * line_height
-        addr_y = margin + 40 + total_address_height
+        addr_y = margin + 10 + total_address_height
+
+        # Calculate sender text position
+        sender_y = addr_y + 10  # Position above address, relative to address top
 
         for line in address_lines:
             # Set appropriate font for each line
@@ -210,6 +216,13 @@ def _draw_address_section(
                 })
             canvas_obj.drawString(addr_x, addr_y, line)
             addr_y -= line_height
+
+    # Draw sender text above address (after calculating position)
+    if sender_text:  # Only draw if not empty
+        sender_font_size = 10
+        canvas_obj.setFont(font_name, sender_font_size)
+        canvas_obj.setFillColorRGB(r, g, b)
+        canvas_obj.drawString(addr_x, sender_y, sender_text)
 
 
 def _draw_stamp_box(canvas_obj, width, height, margin, font_name):
@@ -443,6 +456,7 @@ def generate_back_side(
     url=None,
     warnings=None,
     category=None,
+    sender_text="",
 ):
     """
     Generate the back side (text side) of a postcard on an existing canvas.
@@ -458,6 +472,8 @@ def generate_back_side(
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
     :param warnings: Optional dict to collect warnings (e.g., truncation warnings)
+    :param category: Optional category for special labels (e.g., "DE_INT")
+    :param sender_text: Optional sender text to display above the address (default="")
     """
     if warnings is None:
         warnings = {}
@@ -669,7 +685,7 @@ def generate_back_side(
 
     # === DRAW ADDRESS AND STAMP ===
     _draw_address_section(
-        c, address, divider_x, margin, height, font_name, width, enable_emoji, text_color, warnings
+        c, address, divider_x, margin, height, font_name, width, enable_emoji, text_color, warnings, sender_text
     )
     _draw_stamp_box(c, width, height, margin, font_name)
     
