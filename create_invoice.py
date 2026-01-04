@@ -174,8 +174,9 @@ def create_invoice_pdf(
     items = [
         {'description': 'Printing costs', 'amount': printing_costs},
         {'description': shipping_description, 'amount': shipping_cost},
-        {'description': 'Voucher', 'amount': voucher},
     ]
+    if voucher != 0.0:
+        items.append({'description': 'Voucher', 'amount': voucher})
 
     # Items table
     table_data = [['Description', 'Amount (€)']]
