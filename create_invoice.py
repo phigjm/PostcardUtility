@@ -145,6 +145,10 @@ def create_invoice_pdf(
     story.append(HLine(width=9*cm, thickness=0.5))
     story.append(Spacer(1, 0.2*cm))
 
+    # If customer address is None, use delivery address
+    if customer_address is None:
+        customer_address = delivery_address
+
     # Customer address
     customer_address_html = customer_address.replace('\n', '<br/>')
     story.append(Paragraph(customer_address_html, address_style))
