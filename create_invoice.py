@@ -13,6 +13,9 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from datetime import datetime
 import os
+import tempfile
+from facturx import generate_from_file
+import re
 
 
 class HLine(Flowable):
@@ -249,6 +252,190 @@ def create_invoice_pdf(
     # Build PDF with header and footer
     doc.build(story, onFirstPage=draw_header_and_footer, onLaterPages=draw_header_and_footer)
 
+def create_e_invoice(
+    output_path,
+    sender_address,
+    customer_address,
+    delivery_address,
+    invoice_date,
+    invoice_number,
+    postcard_id,
+    printing_costs,
+    shipping_cost,
+    voucher,
+    is_international_shipping,
+    customer_name=None,
+    customer_email=None,
+    customer_username=None,
+    vat_amount=0.0,
+    total_amount=0.0
+):
+    """
+    Create an electronic invoice (Factur-X/ZUGFeRD) PDF by generating the visual PDF
+    and embedding the XML data.
+
+    Args:
+        output_path: Path where to save the final e-invoice PDF
+        sender_address: String with sender address
+        customer_address: String with customer billing address
+        delivery_address: String with delivery address
+        invoice_date: Date string (e.g., '2024-01-04')
+        invoice_number: String with invoice number
+        postcard_id: String with postcard ID
+        printing_costs: Printing costs amount
+        shipping_cost: Shipping costs amount
+        voucher: Voucher amount (negative for discount)
+        is_international_shipping: Boolean for international shipping description
+        customer_name: Optional customer name
+        customer_email: Optional customer email
+        customer_username: Optional customer username
+        vat_amount: VAT amount in EUR
+        total_amount: Total amount in EUR
+    """
+
+    # Parse addresses (simple parsing)
+    def parse_address(address_str):
+        if ',' in address_str:
+            # Comma separated: name, address, city postcode, country
+            parts = [p.strip() for p in address_str.split(',')]
+            name = parts[0]
+            address_line = parts[1] if len(parts) > 1 else ""
+            city_postcode = parts[2] if len(parts) > 2 else ""
+            country = parts[3] if len(parts) > 3 else "DE"
+            if ' ' in city_postcode:
+                postcode, city = city_postcode.split(' ', 1)
+            else:
+                postcode, city = "", city_postcode
+        else:
+            # Newline separated
+            lines = address_str.split('\n')
+            name = lines[0] if lines else ""
+            address_line = lines[1] if len(lines) > 1 else ""
+            city_postcode = lines[2] if len(lines) > 2 else ""
+            country = "DE"  # Assume Germany
+            if ' ' in city_postcode:
+                postcode, city = city_postcode.split(' ', 1)
+            else:
+                postcode, city = "", city_postcode
+        return name, address_line, city, postcode, country
+
+    sender_name, sender_address_line, sender_city, sender_postcode, sender_country = parse_address(sender_address)
+    customer_name_parsed, customer_address_line, customer_city, customer_postcode, customer_country = parse_address(customer_address)
+    customer_name = customer_name or customer_name_parsed
+
+    # Convert date to YYYYMMDD
+    invoice_date_yyyymmdd = invoice_date.replace('-', '')
+
+    # Shipping description
+    shipping_description = 'International Postcard Postage' if is_international_shipping else 'National Postcard Postage'
+
+    # Net amount
+    net_amount = total_amount - vat_amount
+
+    # Voucher handling
+    voucher_abs = abs(voucher) if voucher != 0 else 0.0
+    tax_basis = net_amount - voucher_abs if voucher < 0 else net_amount
+    tax_basis_19 = net_amount - shipping_cost - voucher_abs
+    vat_19 = tax_basis_19 * 0.19
+
+    total_amount_payed = total_amount+voucher
+
+    # Read template
+    template_path = "PostcardUtility/e_invoice/invoice_template.xml"
+    with open(template_path, 'r', encoding='utf-8') as f:
+        xml_template = f.read()
+
+    # Replace placeholders
+    replacements = {
+        '{{invoice_number}}': invoice_number,
+        '{{invoice_date_yyyymmdd}}': invoice_date_yyyymmdd,
+        '{{postcard_id}}': postcard_id,
+        '{{printing_costs}}': f"{printing_costs:.2f}",
+        '{{shipping_description}}': shipping_description,
+        '{{shipping_cost}}': f"{shipping_cost:.2f}",
+        '{{voucher}}': f"{voucher:.2f}",
+        '{{sender_name}}': sender_name,
+        '{{sender_address_line}}': sender_address_line,
+        '{{sender_city}}': sender_city,
+        '{{sender_postcode}}': sender_postcode,
+        '{{customer_name}}': customer_name,
+        '{{customer_address_line}}': customer_address_line,
+        '{{customer_city}}': customer_city,
+        '{{customer_postcode}}': customer_postcode,
+        '{{customer_country}}': customer_country,
+        '{{customer_email}}': customer_email or '',
+        '{{vat_amount}}': f"{vat_amount:.2f}",
+        '{{net_amount}}': f"{net_amount:.2f}",
+        '{{voucher_abs}}': f"{voucher_abs:.2f}",
+        '{{tax_basis}}': f"{tax_basis:.2f}",
+        '{{tax_basis_19}}': f"{tax_basis_19:.2f}",
+        '{{vat_19}}': f"{vat_19:.2f}",
+        '{{total_amount}}': f"{total_amount_payed:.2f}",
+    }
+
+    print(replacements)
+
+    xml_content = xml_template
+    for placeholder, value in replacements.items():
+        xml_content = xml_content.replace(placeholder, value)
+
+    # Handle conditionals
+    if voucher == 0.0:
+        # Remove the allowance charge
+        allowance_pattern = r'<ram:SpecifiedTradeAllowanceCharge>.*?</ram:SpecifiedTradeAllowanceCharge>'
+        xml_content = re.sub(allowance_pattern, '', xml_content, flags=re.DOTALL)
+        # Also remove AllowanceTotalAmount
+        allowance_total_pattern = r'<ram:AllowanceTotalAmount>{{voucher_abs}}</ram:AllowanceTotalAmount>'
+        xml_content = re.sub(allowance_total_pattern, '', xml_content)
+
+    if not customer_email:
+        # Remove the buyer communication
+        comm_pattern = r'<ram:URIUniversalCommunication>.*?</ram:URIUniversalCommunication>'
+        xml_content = re.sub(comm_pattern, '', xml_content, flags=re.DOTALL)
+
+    # Create temporary XML file
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.xml', delete=False, encoding='utf-8') as temp_xml:
+        temp_xml.write(xml_content)
+        temp_xml_path = temp_xml.name
+
+    # Create a temporary PDF file for the visual invoice
+    with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
+        temp_pdf_path = temp_pdf.name
+
+    try:
+        # Generate the visual PDF invoice
+        create_invoice_pdf(
+            temp_pdf_path,
+            sender_address,
+            customer_address,
+            delivery_address,
+            invoice_date,
+            invoice_number,
+            postcard_id,
+            printing_costs,
+            shipping_cost,
+            voucher,
+            is_international_shipping,
+            customer_name,
+            customer_email,
+            customer_username,
+            vat_amount,
+            total_amount
+        )
+
+        # Generate the combined Factur-X PDF
+        generate_from_file(temp_pdf_path, temp_xml_path)
+
+        # Move the modified PDF to output path
+        import shutil
+        shutil.move(temp_pdf_path, output_path)
+
+    finally:
+        # Clean up the temporary files
+        for temp_file in [temp_pdf_path, temp_xml_path]:
+            if os.path.exists(temp_file):
+                os.unlink(temp_file)
+
 def main():
     """Example usage"""
 
@@ -270,9 +457,8 @@ def main():
     is_international_shipping = True
 
     # Calculate VAT and total
-    net = printing_costs + shipping_cost
-    vat_amount = net * 0.19
-    total_amount = net + vat_amount + voucher
+    total_amount = printing_costs + shipping_cost
+    vat_amount = max(0,(printing_costs + voucher))/ 1.19 * 0.19
 
     # Create PDF
     output_path = "rechnung.pdf"
@@ -296,6 +482,29 @@ def main():
     )
 
     print(f"Invoice created: {output_path}")
+
+    # Create e-invoice
+    e_invoice_output_path = r"C:\Users\gjm\Projecte\PostCardDjango\rechnung_facturx.pdf"
+    create_e_invoice(
+        e_invoice_output_path,
+        sender_address,
+        customer_address,
+        delivery_address,
+        invoice_date,
+        invoice_number,
+        postcard_id,
+        printing_costs,
+        shipping_cost,
+        voucher,
+        is_international_shipping,
+        customer_name,
+        customer_email,
+        customer_username,
+        vat_amount,
+        total_amount
+    )
+
+    print(f"E-invoice created: {e_invoice_output_path}")
 
 if __name__ == "__main__":
     main()
