@@ -68,8 +68,10 @@ def create_invoice_pdf(
         customer_email: Optional customer email
         customer_username: Optional customer username
         vat_amount: VAT amount in EUR
-        total_amount: Total amount in EUR
+        total_amount: Total amount in EUR - exclusive voucher
     """
+
+    total_amount_payed = total_amount+voucher
 
     # Create document
     doc = SimpleDocTemplate(
@@ -178,12 +180,13 @@ def create_invoice_pdf(
 
     # Build items list
     shipping_description = 'International Postcard Postage' if is_international_shipping else 'National Postcard Postage'
+    shipping_description += ' (incl. 0% Tax)'
     items = [
-        {'description': 'Printing costs', 'amount': printing_costs},
+        {'description': 'Printing costs (incl. 19% Tax)', 'amount': printing_costs},
         {'description': shipping_description, 'amount': shipping_cost},
     ]
     if voucher != 0.0:
-        items.append({'description': 'Voucher', 'amount': voucher})
+        items.append({'description': 'Voucher (incl. Tax)', 'amount': voucher})
 
     # Items table
     table_data = [['Description', 'Amount (€)']]
@@ -213,7 +216,7 @@ def create_invoice_pdf(
     summary_data = [
         [Paragraph('Included VAT in EUR (0%):', styles['Normal']), Paragraph('0,00', styles['Normal'])],
         [Paragraph('Included VAT in EUR (19%):', styles['Normal']), Paragraph(f"{vat_amount:.2f}".replace('.', ','), styles['Normal'])],
-        [Paragraph('<b>Total Euro:</b>', styles['Normal']), Paragraph(f"<b>{total_amount:.2f}</b>".replace('.', ','), styles['Normal'])]
+        [Paragraph('<b>Total Euro:</b>', styles['Normal']), Paragraph(f"<b>{total_amount_payed:.2f}</b>".replace('.', ','), styles['Normal'])]
     ]
 
     summary_table = Table(summary_data, colWidths=[6*cm, 3*cm])
@@ -240,7 +243,8 @@ def create_invoice_pdf(
     delivery_address_html = delivery_address.replace('\n', '<br/>')
     delivery_text = f"""
     <b>The order has been shipped to the following address:</b><br/>
-    {delivery_address_html}
+    {delivery_address_html}<br/><br/>
+    The service date corresponds to the invoice date.
     """
     story.append(Paragraph(delivery_text, styles['Normal']))
 
@@ -290,11 +294,13 @@ def create_e_invoice(
         customer_email: Optional customer email
         customer_username: Optional customer username
         vat_amount: VAT amount in EUR
-        total_amount: Total amount in EUR
+        total_amount: Total amount in EUR exclusive voucher
     """
 
     # Parse addresses (simple parsing)
     def parse_address(address_str):
+        if address_str is None:
+            return "", "", "", "", "DE"
         if ',' in address_str:
             # Comma separated: name, address, city postcode, country
             parts = [p.strip() for p in address_str.split(',')]
@@ -328,7 +334,7 @@ def create_e_invoice(
 
     # Shipping description
     shipping_description = 'International Postcard Postage' if is_international_shipping else 'National Postcard Postage'
-
+    
     # Net amount
     net_amount = total_amount - vat_amount
 
@@ -444,7 +450,7 @@ def main():
     customer_address = "Customer Name\nCustomer Street 456\n67890 Customer City"
     delivery_address = "Recipient Name\nDelivery Street 789\n01234 Delivery City"
     invoice_date = datetime.now().strftime('%Y-%m-%d')
-    invoice_number = "C4U-2024-0001"
+    invoice_number = "C4U-2026-0001"
     postcard_id = "79733131-93d3-4a30-b2f1-6e0728e3bfb9"
     customer_name = "John Doe"
     customer_email = "john@example.com"
@@ -458,7 +464,7 @@ def main():
 
     # Calculate VAT and total
     total_amount = printing_costs + shipping_cost
-    vat_amount = max(0,(printing_costs + voucher))/ 1.19 * 0.19
+    vat_amount = max(0,(printing_costs + voucher))/ 1.19 * 0.19 #I think this is incorrect...
 
     # Create PDF
     output_path = "rechnung.pdf"
@@ -505,6 +511,9 @@ def main():
     )
 
     print(f"E-invoice created: {e_invoice_output_path}")
+
+
+
 
 if __name__ == "__main__":
     main()
