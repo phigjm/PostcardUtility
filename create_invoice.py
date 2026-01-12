@@ -47,7 +47,10 @@ def create_invoice_pdf(
     customer_email=None,
     customer_username=None,
     vat_amount=0.0,
-    total_amount=0.0
+    total_amount=0.0,
+    printing_net=0.0,
+    shipping_net=0.0,
+    paid_with_balance=0.0
 ):
     """
     Create a PDF invoice.
@@ -69,6 +72,9 @@ def create_invoice_pdf(
         customer_username: Optional customer username
         vat_amount: VAT amount in EUR
         total_amount: Total amount in EUR - exclusive voucher
+        printing_net: Net printing amount (balance used minus VAT)
+        shipping_net: Net shipping amount (balance used, since shipping is VAT-free)
+        paid_with_balance: Amount paid with regular balance
     """
 
     total_amount_payed = total_amount+voucher
@@ -213,7 +219,9 @@ def create_invoice_pdf(
     story.append(Spacer(1, 1*cm))
 
     # VAT summary
+    total_net = printing_net + shipping_net
     summary_data = [
+        [Paragraph('Total Net in EUR:', styles['Normal']), Paragraph(f"{total_net:.2f}".replace('.', ','), styles['Normal'])],
         [Paragraph('Included VAT in EUR (0%):', styles['Normal']), Paragraph('0,00', styles['Normal'])],
         [Paragraph('Included VAT in EUR (19%):', styles['Normal']), Paragraph(f"{vat_amount:.2f}".replace('.', ','), styles['Normal'])],
         [Paragraph('<b>Total Euro:</b>', styles['Normal']), Paragraph(f"<b>{total_amount_payed:.2f}</b>".replace('.', ','), styles['Normal'])]
@@ -272,9 +280,13 @@ def create_e_invoice(
     customer_email=None,
     customer_username=None,
     vat_amount=0.0,
-    total_amount=0.0
+    total_amount=0.0,
+    printing_net=0.0,
+    shipping_net=0.0,
+    paid_with_balance=0.0
 ):
     """
+    Warning invoice pdf has the problem that the voucher needs to be split into net and tax part.
     Create an electronic invoice (Factur-X/ZUGFeRD) PDF by generating the visual PDF
     and embedding the XML data.
 
@@ -295,6 +307,9 @@ def create_e_invoice(
         customer_username: Optional customer username
         vat_amount: VAT amount in EUR
         total_amount: Total amount in EUR exclusive voucher
+        printing_net: Net printing amount (balance used minus VAT)
+        shipping_net: Net shipping amount (balance used, since shipping is VAT-free)
+        paid_with_balance: Amount paid with regular balance
     """
 
     # Parse addresses (simple parsing)
@@ -335,16 +350,24 @@ def create_e_invoice(
     # Shipping description
     shipping_description = 'International Postcard Postage' if is_international_shipping else 'National Postcard Postage'
     
-    # Net amount
-    net_amount = total_amount - vat_amount
+    # Net amount (total net before VAT)
+    net_amount_without_voucher = printing_net + shipping_net-voucher
 
     # Voucher handling
     voucher_abs = abs(voucher) if voucher != 0 else 0.0
-    tax_basis = net_amount - voucher_abs if voucher < 0 else net_amount
-    tax_basis_19 = net_amount - shipping_cost - voucher_abs
-    vat_19 = tax_basis_19 * 0.19
+    # printing_net is already the net amount after voucher application for VAT-able part
+    tax_basis_19 = printing_net
 
-    total_amount_payed = total_amount+voucher
+    tax_basis = net_amount_without_voucher - voucher_abs
+
+    # Shipping allowance if shipping_cost > shipping_net
+    shipping_allowance_amount = max(0, shipping_cost - shipping_net)
+    shipping_allowance_basis = shipping_net if shipping_allowance_amount > 0 else 0.0
+    total_allowance_amount = voucher_abs #+ shipping_allowance_amount
+
+    printing_allowance = printing_costs-printing_net-vat_amount
+
+    total_amount_payed = total_amount + voucher
 
     # Read template
     template_path = "PostcardUtility/e_invoice/invoice_template.xml"
@@ -358,7 +381,7 @@ def create_e_invoice(
         '{{postcard_id}}': postcard_id,
         '{{printing_costs}}': f"{printing_costs:.2f}",
         '{{shipping_description}}': shipping_description,
-        '{{shipping_cost}}': f"{shipping_cost:.2f}",
+        '{{shipping_cost}}': f"{shipping_net:.2f}",
         '{{voucher}}': f"{voucher:.2f}",
         '{{sender_name}}': sender_name,
         '{{sender_address_line}}': sender_address_line,
@@ -371,12 +394,18 @@ def create_e_invoice(
         '{{customer_country}}': customer_country,
         '{{customer_email}}': customer_email or '',
         '{{vat_amount}}': f"{vat_amount:.2f}",
-        '{{net_amount}}': f"{net_amount:.2f}",
+        '{{net_amount}}': f"{net_amount_without_voucher:.2f}",
         '{{voucher_abs}}': f"{voucher_abs:.2f}",
         '{{tax_basis}}': f"{tax_basis:.2f}",
         '{{tax_basis_19}}': f"{tax_basis_19:.2f}",
-        '{{vat_19}}': f"{vat_19:.2f}",
-        '{{total_amount}}': f"{total_amount_payed:.2f}",
+        '{{vat_19}}': f"{vat_amount:.2f}",
+        '{{total_amount}}': f"{paid_with_balance:.2f}",
+        '{{printing_net}}': f"{printing_net:.2f}",
+        '{{shipping_net}}': f"{shipping_net:.2f}",
+        '{{shipping_allowance_basis}}': f"{shipping_allowance_basis:.2f}",
+        '{{shipping_allowance_amount}}': f"{shipping_allowance_amount:.2f}",
+        '{{total_allowance_amount}}': f"{total_allowance_amount:.2f}",
+        '{{printing_allowance}}': f"{printing_allowance:.2f}",
     }
 
     print(replacements)
@@ -387,11 +416,18 @@ def create_e_invoice(
 
     # Handle conditionals
     if voucher == 0.0:
-        # Remove the allowance charge
-        allowance_pattern = r'<ram:SpecifiedTradeAllowanceCharge>.*?</ram:SpecifiedTradeAllowanceCharge>'
-        xml_content = re.sub(allowance_pattern, '', xml_content, flags=re.DOTALL)
-        # Also remove AllowanceTotalAmount
-        allowance_total_pattern = r'<ram:AllowanceTotalAmount>{{voucher_abs}}</ram:AllowanceTotalAmount>'
+        # Remove the voucher allowance charge (19% VAT)
+        voucher_allowance_pattern = r'<ram:SpecifiedTradeAllowanceCharge>[\s\S]*?<ram:RateApplicablePercent>19\.00</ram:RateApplicablePercent>[\s\S]*?</ram:SpecifiedTradeAllowanceCharge>'
+        xml_content = re.sub(voucher_allowance_pattern, '', xml_content, flags=re.DOTALL)
+
+    if shipping_allowance_amount == 0.0:
+        # Remove the shipping allowance charge (0% VAT)
+        shipping_allowance_pattern = r'<ram:SpecifiedTradeAllowanceCharge>[\s\S]*?<ram:RateApplicablePercent>0\.00</ram:RateApplicablePercent>[\s\S]*?</ram:SpecifiedTradeAllowanceCharge>'
+        xml_content = re.sub(shipping_allowance_pattern, '', xml_content, flags=re.DOTALL)
+
+    if voucher == 0.0 and shipping_allowance_amount == 0.0:
+        # Remove AllowanceTotalAmount if no allowances
+        allowance_total_pattern = r'<ram:AllowanceTotalAmount>{{total_allowance_amount}}</ram:AllowanceTotalAmount>'
         xml_content = re.sub(allowance_total_pattern, '', xml_content)
 
     if not customer_email:
@@ -426,7 +462,10 @@ def create_e_invoice(
             customer_email,
             customer_username,
             vat_amount,
-            total_amount
+            total_amount,
+            printing_net,
+            shipping_net,
+            paid_with_balance
         )
 
         # Generate the combined Factur-X PDF
@@ -465,6 +504,9 @@ def main():
     # Calculate VAT and total
     total_amount = printing_costs + shipping_cost
     vat_amount = max(0,(printing_costs + voucher))/ 1.19 * 0.19 #I think this is incorrect...
+    printing_net = printing_costs + voucher - vat_amount  # Example calculation
+    shipping_net = shipping_cost  # Shipping is VAT-free
+    paid_with_balance = total_amount + voucher  # Example: total paid with balance
 
     # Create PDF
     output_path = "rechnung.pdf"
@@ -484,7 +526,10 @@ def main():
         customer_email,
         customer_username,
         vat_amount,
-        total_amount
+        total_amount,
+        printing_net,
+        shipping_net,
+        paid_with_balance
     )
 
     print(f"Invoice created: {output_path}")
@@ -507,7 +552,10 @@ def main():
         customer_email,
         customer_username,
         vat_amount,
-        total_amount
+        total_amount,
+        printing_net,
+        shipping_net,
+        paid_with_balance
     )
 
     print(f"E-invoice created: {e_invoice_output_path}")
