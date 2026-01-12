@@ -131,7 +131,7 @@
           <udt:Indicator>false</udt:Indicator>
         </ram:ChargeIndicator>
         <ram:BasisAmount>{{net_amount}}</ram:BasisAmount>
-        <ram:ActualAmount>{{voucher_abs}}</ram:ActualAmount>
+        <ram:ActualAmount>{{printing_allowance}}</ram:ActualAmount>
         <ram:Reason>Voucher discount</ram:Reason>
         <ram:CategoryTradeTax>
           <ram:TypeCode>VAT</ram:TypeCode>
@@ -139,9 +139,22 @@
           <ram:RateApplicablePercent>19.00</ram:RateApplicablePercent>
         </ram:CategoryTradeTax>
       </ram:SpecifiedTradeAllowanceCharge>
+      <ram:SpecifiedTradeAllowanceCharge>
+        <ram:ChargeIndicator>
+          <udt:Indicator>false</udt:Indicator>
+        </ram:ChargeIndicator>
+        <ram:BasisAmount>{{net_amount}}</ram:BasisAmount>
+        <ram:ActualAmount>{{shipping_allowance_amount}}</ram:ActualAmount>
+        <ram:Reason>Voucher discount</ram:Reason>
+        <ram:CategoryTradeTax>
+          <ram:TypeCode>VAT</ram:TypeCode>
+          <ram:CategoryCode>S</ram:CategoryCode>
+          <ram:RateApplicablePercent>0.00</ram:RateApplicablePercent>
+        </ram:CategoryTradeTax>
+      </ram:SpecifiedTradeAllowanceCharge>
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
         <ram:LineTotalAmount>{{net_amount}}</ram:LineTotalAmount>
-        <ram:AllowanceTotalAmount>{{voucher_abs}}</ram:AllowanceTotalAmount>
+        <ram:AllowanceTotalAmount>{{total_allowance_amount}}</ram:AllowanceTotalAmount>
         <ram:TaxBasisTotalAmount>{{tax_basis}}</ram:TaxBasisTotalAmount>
         <ram:TaxTotalAmount currencyID="EUR">{{vat_19}}</ram:TaxTotalAmount>
         <ram:GrandTotalAmount>{{total_amount}}</ram:GrandTotalAmount>
