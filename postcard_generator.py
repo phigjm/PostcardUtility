@@ -273,7 +273,7 @@ def generate_postcard(
     message,
     address,
     output_file="postcard.pdf",
-    font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+    font_path=r"C:\Users\gjm\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
     page_size=landscape(A4),
     border_thickness=5,
     show_debug_lines=False,
@@ -319,14 +319,28 @@ def generate_postcard(
     is_pdf_input = image_path.lower().endswith(".pdf")
 
     if is_pdf_input:
-        # PDF input: merge existing PDF with generated text side
+        # PDF input: use existing PDF and overlay text annotations
         font_name = register_font(font_path)
 
-        # Create temporary file for text side
+        # Check if PDF has multiple pages
+        front_pdf_file = open(image_path, "rb")
+        try:
+            pdf_reader = PdfReader(front_pdf_file)
+            num_pages = len(pdf_reader.pages)
+            has_second_page = num_pages >= 2
+            
+            # Keep references to pages before closing
+            front_page_ref = pdf_reader.pages[0]
+            back_page_ref = pdf_reader.pages[1] if has_second_page else None
+        finally:
+            # Don't close yet - we'll do it after we finish processing
+            pass
+
+        # Create temporary file for text overlay
         temp_text_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp_text_pdf.close()
 
-        # Generate only the text side (with compression)
+        # Generate text overlay (with compression)
         c = canvas.Canvas(temp_text_pdf.name, pagesize=page_size, compress=True)
         generate_back_side(
             c=c,
@@ -345,27 +359,46 @@ def generate_postcard(
         )
         c.save()
 
-        # Merge the input PDF with the generated text side
+        # Merge pages
         pdf_writer = PdfWriter()
 
         # Add the front side from input PDF (first page only)
-        with open(image_path, "rb") as front_pdf_file:
-            pdf_reader = PdfReader(front_pdf_file)
-            pdf_writer.add_page(pdf_reader.pages[0])
+        pdf_writer.add_page(front_page_ref)
 
-        # Add the text side
-        with open(temp_text_pdf.name, "rb") as text_pdf_file:
-            pdf_reader = PdfReader(text_pdf_file)
-            pdf_writer.add_page(pdf_reader.pages[0])
+        # Add the back side with text overlay
+        if has_second_page:
+            # If PDF has second page, use it and overlay text annotations on top
+            text_pdf_file = open(temp_text_pdf.name, "rb")
+            try:
+                text_reader = PdfReader(text_pdf_file)
+                text_overlay = text_reader.pages[0]
+
+                # Merge: overlay text on the existing back page
+                back_page_ref.merge_page(text_overlay)
+                pdf_writer.add_page(back_page_ref)
+            finally:
+                text_pdf_file.close()
+        else:
+            # If only one page, just add the generated text side
+            text_pdf_file = open(temp_text_pdf.name, "rb")
+            try:
+                text_reader = PdfReader(text_pdf_file)
+                pdf_writer.add_page(text_reader.pages[0])
+            finally:
+                text_pdf_file.close()
 
         # Write the merged PDF
         with open(output_file, "wb") as output_pdf_file:
             pdf_writer.write(output_pdf_file)
 
-        # Clean up temporary file
+        # Clean up resources
+        front_pdf_file.close()
         os.unlink(temp_text_pdf.name)
 
-        print(f"Postcard generated successfully (PDF merged): {output_file}")
+        if has_second_page:
+            print(f"Postcard generated successfully (using existing back page with text overlay): {output_file}")
+        else:
+            print(f"Postcard generated successfully (PDF merged): {output_file}")
 
     else:
         # Image input: generate both sides
@@ -542,13 +575,19 @@ def generate_postcard_batch(
         # OPTIMIZATION: Keep front page in memory and reuse it for all postcards
         pdf_writer = PdfWriter()
 
-        # Load or generate front side and keep the reader open
+        # Load or generate front side and check for existing back page
         if is_pdf_input:
             # Load from existing PDF - keep file open for duration
             front_pdf_file = open(image_path, "rb")
             front_pdf_reader = PdfReader(front_pdf_file)
             front_page = front_pdf_reader.pages[0]
+            
+            # Check if PDF has multiple pages (existing back page)
+            has_existing_back_page = len(front_pdf_reader.pages) >= 2
+            existing_back_page = front_pdf_reader.pages[1] if has_existing_back_page else None
+            
             should_close_front = True
+            temp_front_name = None
         else:
             # Generate image-based front side
             temp_front = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
@@ -568,54 +607,75 @@ def generate_postcard_batch(
             front_pdf_file = open(temp_front.name, "rb")
             front_pdf_reader = PdfReader(front_pdf_file)
             front_page = front_pdf_reader.pages[0]
+            
+            # No existing back page for image-based input
+            has_existing_back_page = False
+            existing_back_page = None
+            
             should_close_front = True
             temp_front_name = temp_front.name
 
-        # Add front + back pairs
-        for item in messages_and_addresses:
-            # Add front side (clone the page so it doesn't depend on the reader)
-            pdf_writer.add_page(front_page)
+        try:
+            # Add front + back pairs
+            for item in messages_and_addresses:
+                # Add front side (clone the page so it doesn't depend on the reader)
+                pdf_writer.add_page(front_page)
 
-            # Generate and add back side
-            message = item.get("message", "")
-            address = item.get("address", "")
+                # Generate and add back side
+                message = item.get("message", "")
+                address = item.get("address", "")
 
-            temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-            temp_back.close()
+                temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                temp_back.close()
 
-            c = canvas.Canvas(temp_back.name, pagesize=page_size, compress=True)
-            generate_back_side(
-                c=c,
-                message=message,
-                address=address,
-                font_name=font_name,
-                page_size=page_size,
-                show_debug_lines=show_debug_lines,
-                message_area_ratio=message_area_ratio,
-                enable_emoji=enable_emoji,
-                text_color=text_color,
-                url=url,
-                warnings=warnings,
-                category=category,
-                sender_text=sender_text,
-            )
-            c.save()
+                c = canvas.Canvas(temp_back.name, pagesize=page_size, compress=True)
+                generate_back_side(
+                    c=c,
+                    message=message,
+                    address=address,
+                    font_name=font_name,
+                    page_size=page_size,
+                    show_debug_lines=show_debug_lines,
+                    message_area_ratio=message_area_ratio,
+                    enable_emoji=enable_emoji,
+                    text_color=text_color,
+                    url=url,
+                    warnings=warnings,
+                    category=category,
+                    sender_text=sender_text,
+                )
+                c.save()
 
-            with open(temp_back.name, "rb") as temp_back_file:
-                temp_back_reader = PdfReader(temp_back_file)
-                pdf_writer.add_page(temp_back_reader.pages[0])
+                temp_back_file = open(temp_back.name, "rb")
+                try:
+                    temp_back_reader = PdfReader(temp_back_file)
+                    text_overlay = temp_back_reader.pages[0]
 
-            os.unlink(temp_back.name)
+                    if has_existing_back_page:
+                        # Overlay text on the existing back page
+                        # Create a copy to avoid modifying the original
+                        from copy import deepcopy
+                        back_page_copy = deepcopy(existing_back_page)
+                        back_page_copy.merge_page(text_overlay)
+                        pdf_writer.add_page(back_page_copy)
+                    else:
+                        # Use the generated text side directly
+                        pdf_writer.add_page(text_overlay)
+                finally:
+                    temp_back_file.close()
 
-        # Write final PDF with compression
-        with open(output_file, "wb") as output_pdf:
-            pdf_writer.write(output_pdf)
+                os.unlink(temp_back.name)
 
-        # Close and cleanup
-        if should_close_front:
-            front_pdf_file.close()
-            if not is_pdf_input:
-                os.unlink(temp_front_name)
+            # Write final PDF with compression
+            with open(output_file, "wb") as output_pdf:
+                pdf_writer.write(output_pdf)
+
+        finally:
+            # Close and cleanup
+            if should_close_front:
+                front_pdf_file.close()
+                if temp_front_name:
+                    os.unlink(temp_front_name)
 
         generated_files.append(output_file)
         print(f"Joined postcard batch generated: {output_file}")
@@ -671,23 +731,30 @@ if __name__ == "__main__":
     # ============================================================================
     # EXAMPLE 1: Single postcard generation (original function)
     # ============================================================================
-    folder = r"C:\Users\Gabri\Projecte\PostCardDjango\media\misc\tmp\test_cards\\"
-    folder = r"C:\Users\Gabri\Downloads\Test"
+    folder = r"C:\Users\gjm\Projecte\PostCardDjango\media\misc\tmp\test_cards\\"
+    folder = r"C:\Users\gjm\Downloads\Test"
 
-    message = """Liebe Alina,
+    message = """Liebe Alina3,
 
 ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama aussprechen."""
 
     # Using an image as front side
     generate_postcard(
-        image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
+        #image_path=r"C:\Users\gjm\Downloads\dc_grafiktestN.pdf",
+        image_path=r"C:\Users\gjm\Downloads\Richa's Both Brands_text.result.pdf",
+        page_size=landscape(A6),
+
         message=message,
         address="John Doe\n123 Main Street\n12345 Hometown\nCountry",
         output_file=folder + "postcard_single.pdf",
-        font_path=r"C:\Users\Gabri\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
-        show_debug_lines=False,
-        border_thickness=0,
+        font_path=r"C:\Users\gjm\Projecte\PostCardDjango\static\fonts\Handlee.ttf",
+        url="https://example.com",
+        category="DE_INT",
+        sender_text="Best regards,\nYour Name",
     )
+
+    print("Single postcard generated.")
+    x = 1/0
 
     # ============================================================================
     # EXAMPLE 2: Batch generation - COMPACT mode
@@ -713,7 +780,8 @@ ich möchte dir von Herzen mein tiefstes Beileid zum Verlust deiner Mama ausspre
 
 
     generate_postcard_batch(
-        image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
+        #image_path=r"C:\Users\Gabri\Downloads\dc_grafiktest (1).pdf",
+        image_path=r"C:\Users\gjm\Downloads\Richa's Both Brands_text.result.pdf",
         messages_and_addresses=postcards_compact,
         output_file=folder + "postcards_compact.pdf",
         mode="compact",
