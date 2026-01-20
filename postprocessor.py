@@ -13,20 +13,29 @@ except ImportError:
     from convert_CMYK import convertPDFtoCMYK
 
 
-def process_postcard(input_pdf, printversion_pdf, preview_version_pdf):
-
+def format_pdf_for_postcard(input_path, output_path):
+    """
+    Centralized wrapper to format PDF to postcard specifications with default parameters.
+    
+    :param input_path: Path to input PDF
+    :param output_path: Path to output PDF
+    """
     process_pdf_for_print(
-        input_path=input_pdf,
-        output_path=printversion_pdf,
+        input_path=input_path,
+        output_path=output_path,
         target_width_mm=postcardformats.get_default_postcard_size()[0],
         target_height_mm=postcardformats.get_default_postcard_size()[1],
-        target_width_mm_with_bleeding=postcardformats.get_default_postcard_size_with_bleeding()[
-            0
-        ],
-        target_height_mm_with_bleeding=postcardformats.get_default_postcard_size_with_bleeding()[
-            1
-        ],
+        target_width_mm_with_bleeding=postcardformats.get_default_postcard_size_with_bleeding()[0],
+        target_height_mm_with_bleeding=postcardformats.get_default_postcard_size_with_bleeding()[1],
+        #enable_rotation=False,
     )
+    convertPDFtoCMYK(output_path)
+
+
+def process_postcard(input_pdf, printversion_pdf, preview_version_pdf):
+
+    # Format PDF to postcard specifications
+    format_pdf_for_postcard(input_pdf, printversion_pdf)
 
     # todo convert cmyk
     if True:  # dosnt work well yet
