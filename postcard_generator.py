@@ -14,8 +14,10 @@ import io
 # Try relative import first (when used as module), fall back to direct import (when run standalone)
 try:
     from .postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
+    from .postprocessor import format_pdf_for_postcard
 except ImportError:
     from postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
+    from postprocessor import format_pdf_for_postcard
 
 
 def register_font(font_path):
@@ -318,12 +320,19 @@ def generate_postcard(
     # Check if input is a PDF or an image
     is_pdf_input = image_path.lower().endswith(".pdf")
 
+    processed_image_path = image_path
+    if is_pdf_input:
+        temp_formatted = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_formatted.close()
+        format_pdf_for_postcard(image_path, temp_formatted.name)
+        processed_image_path = temp_formatted.name
+
     if is_pdf_input:
         # PDF input: use existing PDF and overlay text annotations
         font_name = register_font(font_path)
 
         # Check if PDF has multiple pages
-        front_pdf_file = open(image_path, "rb")
+        front_pdf_file = open(processed_image_path, "rb")
         try:
             pdf_reader = PdfReader(front_pdf_file)
             num_pages = len(pdf_reader.pages)
@@ -393,6 +402,8 @@ def generate_postcard(
 
         # Clean up resources
         front_pdf_file.close()
+        if is_pdf_input:
+            os.unlink(processed_image_path)
         os.unlink(temp_text_pdf.name)
 
         if has_second_page:
@@ -498,6 +509,14 @@ def generate_postcard_batch(
     # Register font once
     font_name = register_font(font_path)
     is_pdf_input = image_path.lower().endswith(".pdf")
+
+    processed_image_path = image_path
+    if is_pdf_input:
+        temp_formatted = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        temp_formatted.close()
+        format_pdf_for_postcard(image_path, temp_formatted.name)
+        processed_image_path = temp_formatted.name
+
     generated_files = []
 
     if mode == "compact":
@@ -509,7 +528,7 @@ def generate_postcard_batch(
         temp_front.close()
 
         if is_pdf_input:
-            with open(image_path, "rb") as pdf_file:
+            with open(processed_image_path, "rb") as pdf_file:
                 pdf_reader = PdfReader(pdf_file)
                 pdf_writer.add_page(pdf_reader.pages[0])
         else:
@@ -578,7 +597,7 @@ def generate_postcard_batch(
         # Load or generate front side and check for existing back page
         if is_pdf_input:
             # Load from existing PDF - keep file open for duration
-            front_pdf_file = open(image_path, "rb")
+            front_pdf_file = open(processed_image_path, "rb")
             front_pdf_reader = PdfReader(front_pdf_file)
             front_page = front_pdf_reader.pages[0]
             
@@ -653,11 +672,10 @@ def generate_postcard_batch(
 
                     if has_existing_back_page:
                         # Overlay text on the existing back page
-                        # Create a copy to avoid modifying the original
-                        from copy import deepcopy
-                        back_page_copy = deepcopy(existing_back_page)
-                        back_page_copy.merge_page(text_overlay)
-                        pdf_writer.add_page(back_page_copy)
+                        # Add the page directly and merge - PdfWriter handles page copying internally
+                        pdf_writer.add_page(existing_back_page)
+                        # Merge the text overlay onto the last added page
+                        pdf_writer.pages[-1].merge_page(text_overlay)
                     else:
                         # Use the generated text side directly
                         pdf_writer.add_page(text_overlay)
@@ -722,6 +740,10 @@ def generate_postcard_batch(
         raise ValueError(
             f"Invalid mode: {mode}. Must be 'compact', 'joined', or 'splitted'"
         )
+
+    # Clean up formatted PDF if used
+    if is_pdf_input:
+        os.unlink(processed_image_path)
 
     return generated_files
 
