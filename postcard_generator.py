@@ -671,11 +671,13 @@ def generate_postcard_batch(
                     text_overlay = temp_back_reader.pages[0]
 
                     if has_existing_back_page:
-                        # Overlay text on the existing back page
-                        # Add the page directly and merge - PdfWriter handles page copying internally
-                        pdf_writer.add_page(existing_back_page)
-                        # Merge the text overlay onto the last added page
-                        pdf_writer.pages[-1].merge_page(text_overlay)
+                        # Overlay text on a fresh copy of the existing back page
+                        # Need to read a fresh page from the PDF file to avoid accumulation
+                        with open(processed_image_path, "rb") as fresh_pdf:
+                            fresh_reader = PdfReader(fresh_pdf)
+                            fresh_back_page = fresh_reader.pages[1]
+                            fresh_back_page.merge_page(text_overlay)
+                            pdf_writer.add_page(fresh_back_page)
                     else:
                         # Use the generated text side directly
                         pdf_writer.add_page(text_overlay)
