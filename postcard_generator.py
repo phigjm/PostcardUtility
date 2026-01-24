@@ -288,6 +288,7 @@ def generate_postcard(
     warnings=None,
     category=None,
     sender_text="",
+    skip_bleed_border=True,
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -307,6 +308,7 @@ def generate_postcard(
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
     :param warnings: Optional dict to collect warnings
+    :param skip_bleed_border: If True, skip adding bleed border (use when frontend already has bleed area, default=True)
     """
     if warnings is None:
         warnings = {}
@@ -324,7 +326,7 @@ def generate_postcard(
     if is_pdf_input:
         temp_formatted = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp_formatted.close()
-        format_pdf_for_postcard(image_path, temp_formatted.name)
+        format_pdf_for_postcard(image_path, temp_formatted.name, skip_bleed_border=skip_bleed_border)
         processed_image_path = temp_formatted.name
 
     if is_pdf_input:
@@ -471,6 +473,7 @@ def generate_postcard_batch(
     warnings=None,
     category=None,
     sender_text="",
+    skip_bleed_border=True,
 ):
     """
     Generate multiple postcards in batch mode.
@@ -514,7 +517,7 @@ def generate_postcard_batch(
     if is_pdf_input:
         temp_formatted = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp_formatted.close()
-        format_pdf_for_postcard(image_path, temp_formatted.name)
+        format_pdf_for_postcard(image_path, temp_formatted.name, skip_bleed_border=skip_bleed_border)
         processed_image_path = temp_formatted.name
 
     generated_files = []
