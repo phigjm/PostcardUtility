@@ -13,12 +13,13 @@ except ImportError:
     from convert_CMYK import convertPDFtoCMYK
 
 
-def format_pdf_for_postcard(input_path, output_path):
+def format_pdf_for_postcard(input_path, output_path, skip_bleed_border=False):
     """
     Centralized wrapper to format PDF to postcard specifications with default parameters.
     
     :param input_path: Path to input PDF
     :param output_path: Path to output PDF
+    :param skip_bleed_border: If True, skip adding bleed border (use when frontend already has bleed area)
     """
     process_pdf_for_print(
         input_path=input_path,
@@ -27,15 +28,16 @@ def format_pdf_for_postcard(input_path, output_path):
         target_height_mm=postcardformats.get_default_postcard_size()[1],
         target_width_mm_with_bleeding=postcardformats.get_default_postcard_size_with_bleeding()[0],
         target_height_mm_with_bleeding=postcardformats.get_default_postcard_size_with_bleeding()[1],
+        skip_bleed_border=skip_bleed_border,
         #enable_rotation=False,
     )
     convertPDFtoCMYK(output_path)
 
 
-def process_postcard(input_pdf, printversion_pdf, preview_version_pdf):
+def process_postcard(input_pdf, printversion_pdf, preview_version_pdf, skip_bleed_border=False):
 
     # Format PDF to postcard specifications
-    format_pdf_for_postcard(input_pdf, printversion_pdf)
+    format_pdf_for_postcard(input_pdf, printversion_pdf, skip_bleed_border=skip_bleed_border)
 
     # todo convert cmyk
     if True:  # dosnt work well yet

@@ -1387,6 +1387,7 @@ def process_pdf_for_print(
     target_height_mm_with_bleeding=105 + 3 * 2,
     enable_rotation=True,
     crop_to_fill=None,
+    skip_bleed_border=False,
 ):
     """Process PDF file and crop/scale all pages
 
@@ -1398,7 +1399,9 @@ def process_pdf_for_print(
         enable_rotation: Whether to enable automatic rotation for better fit
         crop_to_fill: TODO If True (default), crop content to fill area. If False, add borders.
         border_color: RGB color tuple for border when crop_to_fill=False (default: white)
+        skip_bleed_border: If True, skip adding bleed border (use when frontend already has bleed area)
     """
+    print("#####Processing PDF for print with smart borders...")
     try:
         # Read the input PDF
         with open(input_path, "rb") as input_file:
@@ -1453,12 +1456,14 @@ def process_pdf_for_print(
                     target_height_mm=target_height_mm_page,
                     smart_border_mode="scaled",
                 )
-                processed_page = create_smart_borders_scaled(
-                    page=processed_page,
-                    target_width_mm=target_width_mm_with_bleeding_page,
-                    target_height_mm=target_height_mm_with_bleeding_page,
-                    smart_border_mode="unscaled",
-                )
+                # Only add bleed border if frontend hasn't already added it
+                if not skip_bleed_border:
+                    processed_page = create_smart_borders_scaled(
+                        page=processed_page,
+                        target_width_mm=target_width_mm_with_bleeding_page,
+                        target_height_mm=target_height_mm_with_bleeding_page,
+                        smart_border_mode="unscaled",
+                    )
                 # processed_page.rotate(90)
                 writer.add_page(processed_page)
 
