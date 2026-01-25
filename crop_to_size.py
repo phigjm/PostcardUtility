@@ -1421,6 +1421,8 @@ def process_pdf_for_print(
                 target_width_mm_with_bleeding_page = target_width_mm_with_bleeding
                 target_height_mm_with_bleeding_page = target_height_mm_with_bleeding
 
+                
+
                 if enable_rotation and should_rotate(
                     current_width_mm,
                     current_height_mm,
@@ -1440,6 +1442,19 @@ def process_pdf_for_print(
                         target_height_mm_with_bleeding_page,
                     )
                     page = page.rotate(90)  # TODO ask if nescessary
+
+
+
+                #könntest du an der stelle überprüfen ob die current height etwa der target_height_mm_with_bleeding_page entspricht, wenn ja skip_bleed_border auf true setzen
+                if (
+                    abs(current_width_mm - target_width_mm_with_bleeding_page) < 0.1
+                    and abs(current_height_mm - target_height_mm_with_bleeding_page) < 0.1
+                ):
+                    print(
+                        "Page already has bleed area, skipping bleed border addition"
+                    )
+                    writer.add_page(page)
+                    continue
 
                     # if page is larger than target size, scale down to target size
                 scale_factor = max(

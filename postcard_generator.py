@@ -11,13 +11,17 @@ from pypdf import PdfReader, PdfWriter
 from typing import List, Union, Literal, Optional
 import io
 
+
+
 # Try relative import first (when used as module), fall back to direct import (when run standalone)
 try:
     from .postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
     from .postprocessor import format_pdf_for_postcard
+    from . import postcardformats
 except ImportError:
     from postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
     from postprocessor import format_pdf_for_postcard
+    import postcardformats
 
 
 def register_font(font_path):
@@ -288,7 +292,7 @@ def generate_postcard(
     warnings=None,
     category=None,
     sender_text="",
-    skip_bleed_border=True,
+    skip_bleed_border=False,
 ):
     """
     Generate a complete postcard PDF with front (image/PDF) and back (text) sides.
@@ -326,7 +330,7 @@ def generate_postcard(
     if is_pdf_input:
         temp_formatted = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp_formatted.close()
-        format_pdf_for_postcard(image_path, temp_formatted.name, skip_bleed_border=skip_bleed_border)
+        format_pdf_for_postcard(image_path, temp_formatted.name)
         processed_image_path = temp_formatted.name
 
     if is_pdf_input:
@@ -416,15 +420,22 @@ def generate_postcard(
     else:
         # Image input: generate both sides
         font_name = register_font(font_path)
+        
+        front_side_page_size = page_size
+
+        if( skip_bleed_border ):
+            size = postcardformats.get_default_postcard_size_with_bleeding()
+            front_side_page_size = (size[0]*mm, size[1]*mm)
+            print("Skipping bleed border, using size:", front_side_page_size, "and aspect ratio:", front_side_page_size[0]/front_side_page_size[1])
 
         # Create canvas with compression enabled
-        c = canvas.Canvas(output_file, pagesize=page_size, compress=True)
+        c = canvas.Canvas(output_file, pagesize=front_side_page_size, compress=True)
 
         # --- FRONT SIDE ---
         _draw_image_on_canvas(
             c=c,
             image_path=image_path,
-            page_size=page_size,
+            page_size=front_side_page_size,
             border_thickness=border_thickness,
             auto_rotate_image=auto_rotate_image,
             compression_quality=compression_quality,
@@ -473,7 +484,7 @@ def generate_postcard_batch(
     warnings=None,
     category=None,
     sender_text="",
-    skip_bleed_border=True,
+    skip_bleed_border=False,
 ):
     """
     Generate multiple postcards in batch mode.
@@ -517,7 +528,7 @@ def generate_postcard_batch(
     if is_pdf_input:
         temp_formatted = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         temp_formatted.close()
-        format_pdf_for_postcard(image_path, temp_formatted.name, skip_bleed_border=skip_bleed_border)
+        format_pdf_for_postcard(image_path, temp_formatted.name)
         processed_image_path = temp_formatted.name
 
     generated_files = []
@@ -535,11 +546,20 @@ def generate_postcard_batch(
                 pdf_reader = PdfReader(pdf_file)
                 pdf_writer.add_page(pdf_reader.pages[0])
         else:
-            c = canvas.Canvas(temp_front.name, pagesize=page_size, compress=True)
+
+            front_side_page_size = page_size
+
+            if( skip_bleed_border ):
+                size = postcardformats.get_default_postcard_size_with_bleeding()
+                front_side_page_size = (size[0]*mm, size[1]*mm)
+
+            
+
+            c = canvas.Canvas(temp_front.name, pagesize=front_side_page_size, compress=True)
             _draw_image_on_canvas(
                 c=c,
                 image_path=image_path,
-                page_size=page_size,
+                page_size=front_side_page_size,
                 border_thickness=border_thickness,
                 auto_rotate_image=auto_rotate_image,
                 compression_quality=compression_quality,
