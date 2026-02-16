@@ -574,6 +574,7 @@ def generate_postcard_batch(
         for item in messages_and_addresses:
             message = item.get("message", "")
             address = item.get("address", "")
+            item_url = item.get("url", url)
 
             temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             temp_back.close()
@@ -589,7 +590,7 @@ def generate_postcard_batch(
                 message_area_ratio=message_area_ratio,
                 enable_emoji=enable_emoji,
                 text_color=text_color,
-                url=url,
+                url=item_url,
                 warnings=warnings,
                 category=category,
                 sender_text=sender_text,
@@ -666,6 +667,7 @@ def generate_postcard_batch(
                 # Generate and add back side
                 message = item.get("message", "")
                 address = item.get("address", "")
+                item_url = item.get("url", url)
 
                 temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
                 temp_back.close()
@@ -681,7 +683,7 @@ def generate_postcard_batch(
                     message_area_ratio=message_area_ratio,
                     enable_emoji=enable_emoji,
                     text_color=text_color,
-                    url=url,
+                    url=item_url,
                     warnings=warnings,
                     category=category,
                     sender_text=sender_text,
@@ -737,6 +739,7 @@ def generate_postcard_batch(
 
             message = item.get("message", "")
             address = item.get("address", "")
+            item_url = item.get("url", url)
 
             # Generate single postcard
             generate_postcard(
@@ -753,7 +756,7 @@ def generate_postcard_batch(
                 compression_quality=compression_quality,
                 enable_emoji=enable_emoji,
                 text_color=text_color,
-                url=url,
+                url=item_url,
                 sender_text=sender_text,
             )
 
