@@ -4,6 +4,11 @@ from PIL import Image
 import io
 from pyzbar.pyzbar import decode
 import sys
+from reportlab.graphics.barcode.qr import QrCodeWidget
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics import renderPDF
+from reportlab.pdfgen import canvas
+import tempfile
 
 
 def extract_image_from_pdf(doc, xref):
@@ -84,22 +89,33 @@ def generate_qr_code_image(url, size=100):
     img = Image.open(io.BytesIO(pix.tobytes()))
     
     doc.close()
-    os.unlink(temp_pdf.name)
+    try:
+        os.unlink(temp_pdf.name)
+    except OSError as e:
+        print(f"Failed to cleanup temp PDF file: {e}")
     
     return img
 
 
-def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacement_urls: list, output_pdf_path: str):
+def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacement_urls: list, output_pdf_path: str, pages_per_card=None):
     """
     Prozessiert ein PDF: Überprüft alle Bilder auf QR-Codes, ersetzt Bilder mit QR-Code containing placeholder_string
     mit generierten QR-Codes für die replacement_urls in Reihenfolge.
+    pages_per_card: Anzahl Seiten pro Karte, None für alle Seiten als eine Karte.
     """
     doc = fitz.open(input_pdf_path)
-    matching_xrefs = []
+    total_pages = len(doc)
+    if pages_per_card is None:
+        pages_per_card = total_pages
+    num_cards = len(replacement_urls)
+    matching_xrefs_per_card = [[] for _ in range(num_cards)]
     processed_xrefs = set()
 
-    # Ersten Durchlauf: Alle QR-Codes analysieren und matching xrefs identifizieren
-    for page_num in range(len(doc)):
+    # Ersten Durchlauf: Alle QR-Codes analysieren und matching xrefs pro Karte identifizieren
+    for page_num in range(total_pages):
+        card_idx = page_num // pages_per_card
+        if card_idx >= num_cards:
+            continue
         page = doc[page_num]
         image_list = page.get_images(full=True)
 
@@ -114,54 +130,50 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
                     continue
 
                 qr_data = decode_qr_from_pil_image(img_pil)
+                
+                print(f"QR-Code mit xref {xref} auf Seite {page_num + 1} enthält Platzhalter: {qr_data}")
                 if qr_data and placeholder_string in qr_data:
-                    print(f"QR-Code mit xref {xref} enthält Platzhalter: {qr_data}")
-                    matching_xrefs.append((xref, page_num))
-                    print(f"  -> Wird ersetzt!")
+                    matching_xrefs_per_card[card_idx].append((xref, page_num))
+                    print(f"  -> Wird ersetzt für Karte {card_idx + 1}!")
                 processed_xrefs.add(xref)
 
-    if not matching_xrefs:
-        print(f"Keine QR-Codes mit '{placeholder_string}' gefunden.")
-        doc.close()
-        return
-
-    if len(matching_xrefs) > len(replacement_urls):
-        print(f"Warnung: Mehr QR-Codes ({len(matching_xrefs)}) als replacement URLs ({len(replacement_urls)})")
-    
-    # Zweiter Durchlauf: Alle Instanzen der matching xrefs ersetzen
+    # Zweiter Durchlauf: Alle Instanzen der matching xrefs pro Karte ersetzen
     replacements_made = 0
-    for idx, (xref, page_num) in enumerate(matching_xrefs):
-        if idx >= len(replacement_urls):
-            break
-        replacement_url = replacement_urls[idx]
+    for card_idx, xrefs in enumerate(matching_xrefs_per_card):
+        if not xrefs:
+            continue
+        replacement_url = replacement_urls[card_idx]
+        print(f"Ersetze QR-Codes für Karte {card_idx + 1} mit URL: {replacement_url}")
         
-        page = doc[page_num]
-        img_rects = page.get_image_rects(xref)
-        print(f"Ersetze Bild xref {xref} auf Seite {page_num + 1}, {len(img_rects)} Instanzen mit URL: {replacement_url}")
-        
-        # Generiere QR-Code Bild
-        qr_img = generate_qr_code_image(replacement_url, size=100)  # Größe anpassen
-        
-        for rect in img_rects:
-            # Speichere temp Bild
-            temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-            qr_img.save(temp_img.name, 'PNG')
-            temp_img.close()
+        for xref, page_num in xrefs:
+            page = doc[page_num]
+            img_rects = page.get_image_rects(xref)
+            print(f"  Ersetze Bild xref {xref} auf Seite {page_num + 1}, {len(img_rects)} Instanzen")
             
-            page.insert_image(rect, filename=temp_img.name, keep_proportion=False)
-            os.unlink(temp_img.name)
-            replacements_made += 1
+            # Generiere QR-Code Bild
+            qr_img = generate_qr_code_image(replacement_url, size=100)  # Größe anpassen
+            
+            for rect in img_rects:
+                # Speichere temp Bild
+                temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                qr_img.save(temp_img.name, 'PNG')
+                temp_img.close()
+                
+                page.insert_image(rect, filename=temp_img.name, keep_proportion=False)
+                os.unlink(temp_img.name)
+                replacements_made += 1
 
     print(f"Insgesamt {replacements_made} Bild-Instanzen ersetzt")
 
     # Dritter Durchlauf: Alle ersetzten xrefs aus dem Dokument entfernen
-    for xref, _ in matching_xrefs:
-        for page_num in range(len(doc)):
-            page = doc[page_num]
-            try:
-                page.delete_image(xref)
-            except:
-                pass  # Ignore if already deleted
+    for xrefs in matching_xrefs_per_card:
+        for xref, _ in xrefs:
+            for page_num in range(total_pages):
+                page = doc[page_num]
+                try:
+                    page.delete_image(xref)
+                except:
+                    pass  # Ignore if already deleted
 
     doc.save(output_pdf_path)
     doc.close()

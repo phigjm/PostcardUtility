@@ -408,6 +408,22 @@ def generate_postcard(
         with open(output_file, "wb") as output_pdf_file:
             pdf_writer.write(output_pdf_file)
 
+        # QR Code postprocessing if URL provided
+        if url:
+            temp_processed = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            temp_processed.close()
+            qr_code_postprocessor(
+                input_pdf_path=output_file,
+                placeholder_string="https://card4u.org/demoqrcode",
+                replacement_urls=[url],
+                output_pdf_path=temp_processed.name,
+                pages_per_card=None
+            )
+            # Replace original with processed
+            if os.path.exists(output_file):
+                os.unlink(output_file)
+            os.rename(temp_processed.name, output_file)
+
         # Clean up resources
         front_pdf_file.close()
         if is_pdf_input:
@@ -725,11 +741,14 @@ def generate_postcard_batch(
                     temp_processed.close()
                     qr_code_postprocessor(
                         input_pdf_path=output_file,
-                        placeholder_string="card4u.org/demoqrcode",
+                        placeholder_string="https://card4u.org/demoqrcode",
                         replacement_urls=replacement_urls,
-                        output_pdf_path=temp_processed.name
+                        output_pdf_path=temp_processed.name,
+                        pages_per_card=2
                     )
                     # Replace original with processed
+                    if os.path.exists(output_file):
+                        os.unlink(output_file)
                     os.rename(temp_processed.name, output_file)
 
         finally:
