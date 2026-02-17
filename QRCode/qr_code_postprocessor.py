@@ -4,10 +4,7 @@ from PIL import Image
 import io
 from pyzbar.pyzbar import decode
 import sys
-from reportlab.graphics.barcode.qr import QrCodeWidget
-from reportlab.graphics.shapes import Drawing
-from reportlab.graphics import renderPDF
-from reportlab.pdfgen import canvas
+import qrcode
 import tempfile
 
 
@@ -62,37 +59,21 @@ def decode_qr_from_pil_image(img_pil):
         return None
 
 
-def generate_qr_code_image(url, size=100):
+def generate_qr_code_image(url):
     """
     Generiert ein QR-Code PIL Image für die gegebene URL mit transparentem Hintergrund.
+    box_size=10 ist ein guter Kompromiss: groß genug für gute Qualität beim Strecken,
+    aber klein genug für effiziente Dateigröße.
     """
-    qr_code = QrCodeWidget(url)
-    bounds = qr_code.getBounds()
-    qr_width = bounds[2] - bounds[0]
-    qr_height = bounds[3] - bounds[1]
+    qr = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=1,
+        border=0,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
     
-    d = Drawing(size, size, transform=[size/qr_width, 0, 0, size/qr_height, 0, 0])
-    d.add(qr_code)
-    
-    # Create a temporary PDF to render the QR code
-    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
-    temp_pdf.close()
-    
-    c = canvas.Canvas(temp_pdf.name, pagesize=(size, size))
-    renderPDF.draw(d, c, 0, 0)
-    c.save()
-    
-    # Convert PDF to PIL Image with alpha channel
-    doc = fitz.open(temp_pdf.name)
-    page = doc[0]
-    pix = page.get_pixmap(alpha=True)  # Enable alpha channel for transparency
-    img = Image.open(io.BytesIO(pix.tobytes("png")))
-    
-    doc.close()
-    try:
-        os.unlink(temp_pdf.name)
-    except OSError as e:
-        print(f"Failed to cleanup temp PDF file: {e}")
+    img = qr.make_image(fill_color="black", back_color="transparent")
     
     return img
 
@@ -151,12 +132,12 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
             print(f"  Ersetze Bild xref {xref} auf Seite {page_num + 1}, {len(img_rects)} Instanzen")
             
             # Generiere QR-Code Bild
-            qr_img = generate_qr_code_image(replacement_url, size=100)  # Größe anpassen
+            qr_img = generate_qr_code_image(replacement_url)
             
             for rect in img_rects:
-                # Speichere temp Bild
+                # Speichere temp Bild mit optimierter Kompression
                 temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-                qr_img.save(temp_img.name, 'PNG')
+                qr_img.save(temp_img.name, 'PNG', optimize=True)
                 temp_img.close()
                 
                 page.insert_image(rect, filename=temp_img.name, keep_proportion=False)
