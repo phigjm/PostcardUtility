@@ -64,7 +64,7 @@ def decode_qr_from_pil_image(img_pil):
 
 def generate_qr_code_image(url, size=100):
     """
-    Generiert ein QR-Code PIL Image für die gegebene URL.
+    Generiert ein QR-Code PIL Image für die gegebene URL mit transparentem Hintergrund.
     """
     qr_code = QrCodeWidget(url)
     bounds = qr_code.getBounds()
@@ -82,11 +82,11 @@ def generate_qr_code_image(url, size=100):
     renderPDF.draw(d, c, 0, 0)
     c.save()
     
-    # Convert PDF to PIL Image
+    # Convert PDF to PIL Image with alpha channel
     doc = fitz.open(temp_pdf.name)
     page = doc[0]
-    pix = page.get_pixmap()
-    img = Image.open(io.BytesIO(pix.tobytes()))
+    pix = page.get_pixmap(alpha=True)  # Enable alpha channel for transparency
+    img = Image.open(io.BytesIO(pix.tobytes("png")))
     
     doc.close()
     try:
