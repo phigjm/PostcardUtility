@@ -10,7 +10,7 @@ import tempfile
 
 def extract_image_from_pdf(doc, xref):
     """
-    Extrahiert ein einzelnes Bild aus dem PDF basierend auf xref.
+    Extracts a single image from the PDF based on xref.
     """
     try:
         base_image = doc.extract_image(xref)
@@ -32,13 +32,13 @@ def extract_image_from_pdf(doc, xref):
 
         return img_pil
     except Exception as e:
-        print(f"Fehler beim Extrahieren von Bild xref {xref}: {e}")
+        print(f"Error extracting image xref {xref}: {e}")
         return None
 
 
 def decode_qr_from_pil_image(img_pil):
     """
-    Dekodiert QR-Code aus einem PIL Image.
+    Decodes QR code from a PIL Image.
     """
     try:
         # Ensure RGB mode
@@ -55,15 +55,15 @@ def decode_qr_from_pil_image(img_pil):
         qr_data = decoded_objects[0].data.decode('utf-8')
         return qr_data
     except Exception as e:
-        print(f"Fehler beim Dekodieren: {e}")
+        print(f"Error decoding: {e}")
         return None
 
 
 def generate_qr_code_image(url):
     """
-    Generiert ein QR-Code PIL Image für die gegebene URL mit transparentem Hintergrund.
-    box_size=10 ist ein guter Kompromiss: groß genug für gute Qualität beim Strecken,
-    aber klein genug für effiziente Dateigröße.
+    Generates a QR code PIL Image for the given URL with transparent background.
+    box_size=1 is a good compromise: large enough for good quality when stretching,
+    but small enough for efficient file size.
     """
     qr = qrcode.QRCode(
         error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -80,9 +80,9 @@ def generate_qr_code_image(url):
 
 def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacement_urls: list, output_pdf_path: str, pages_per_card=None):
     """
-    Prozessiert ein PDF: Überprüft alle Bilder auf QR-Codes, ersetzt Bilder mit QR-Code containing placeholder_string
-    mit generierten QR-Codes für die replacement_urls in Reihenfolge.
-    pages_per_card: Anzahl Seiten pro Karte, None für alle Seiten als eine Karte.
+    Processes a PDF: Checks all images for QR codes, replaces images with QR codes containing placeholder_string
+    with generated QR codes for the replacement_urls in order.
+    pages_per_card: Number of pages per card, None for all pages as one card.
     """
     doc = fitz.open(input_pdf_path)
     total_pages = len(doc)
@@ -92,7 +92,7 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
     matching_xrefs_per_card = [[] for _ in range(num_cards)]
     processed_xrefs_per_card = [set() for _ in range(num_cards)]
 
-    # Ersten Durchlauf: Alle QR-Codes analysieren und matching xrefs pro Karte identifizieren
+    # First pass: Analyze all QR codes and identify matching xrefs per card
     for page_num in range(total_pages):
         card_idx = page_num // pages_per_card
         if card_idx >= num_cards:
@@ -103,7 +103,7 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
         for img in image_list:
             xref = img[0]
             
-            # QR-Code nur einmal pro xref pro Karte dekodieren
+            # Decode QR code only once per xref per card
             if xref not in processed_xrefs_per_card[card_idx]:
                 img_pil = extract_image_from_pdf(doc, xref)
                 if img_pil is None:
@@ -112,30 +112,30 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
 
                 qr_data = decode_qr_from_pil_image(img_pil)
                 
-                print(f"QR-Code mit xref {xref} auf Seite {page_num + 1} enthält Platzhalter: {qr_data}")
+                print(f"QR code with xref {xref} on page {page_num + 1} contains placeholder: {qr_data}")
                 if qr_data and placeholder_string in qr_data:
                     matching_xrefs_per_card[card_idx].append((xref, page_num))
-                    print(f"  -> Wird ersetzt für Karte {card_idx + 1}!")
+                    print(f"  -> Will be replaced for card {card_idx + 1}!")
                 processed_xrefs_per_card[card_idx].add(xref)
 
-    # Zweiter Durchlauf: Alle Instanzen der matching xrefs pro Karte ersetzen
+    # Second pass: Replace all instances of matching xrefs per card
     replacements_made = 0
     for card_idx, xrefs in enumerate(matching_xrefs_per_card):
         if not xrefs:
             continue
         replacement_url = replacement_urls[card_idx]
-        print(f"Ersetze QR-Codes für Karte {card_idx + 1} mit URL: {replacement_url}")
+        print(f"Replacing QR codes for card {card_idx + 1} with URL: {replacement_url}")
         
         for xref, page_num in xrefs:
             page = doc[page_num]
             img_rects = page.get_image_rects(xref)
-            print(f"  Ersetze Bild xref {xref} auf Seite {page_num + 1}, {len(img_rects)} Instanzen")
+            print(f"  Replacing image xref {xref} on page {page_num + 1}, {len(img_rects)} instances")
             
-            # Generiere QR-Code Bild
+            # Generate QR code image
             qr_img = generate_qr_code_image(replacement_url)
             
             for rect in img_rects:
-                # Speichere temp Bild mit optimierter Kompression
+                # Save temp image with optimized compression
                 temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
                 qr_img.save(temp_img.name, 'PNG', optimize=True)
                 temp_img.close()
@@ -144,9 +144,9 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
                 os.unlink(temp_img.name)
                 replacements_made += 1
 
-    print(f"Insgesamt {replacements_made} Bild-Instanzen ersetzt")
+    print(f"Total {replacements_made} image instances replaced")
 
-    # Dritter Durchlauf: Alle ersetzten xrefs aus dem Dokument entfernen
+    # Third pass: Remove all replaced xrefs from the document
     for xrefs in matching_xrefs_per_card:
         for xref, _ in xrefs:
             for page_num in range(total_pages):
@@ -158,12 +158,12 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
 
     doc.save(output_pdf_path)
     doc.close()
-    print(f"Verarbeitung abgeschlossen. Output: {output_pdf_path}")
+    print(f"Processing completed. Output: {output_pdf_path}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Verwendung: python qr_code_postprocessor.py <input_pdf>")
+        print("Usage: python qr_code_postprocessor.py <input_pdf>")
         sys.exit(1)
 
     input_pdf = sys.argv[1]
