@@ -90,7 +90,7 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
         pages_per_card = total_pages
     num_cards = len(replacement_urls)
     matching_xrefs_per_card = [[] for _ in range(num_cards)]
-    processed_xrefs = set()
+    processed_xrefs_per_card = [set() for _ in range(num_cards)]
 
     # Ersten Durchlauf: Alle QR-Codes analysieren und matching xrefs pro Karte identifizieren
     for page_num in range(total_pages):
@@ -103,11 +103,11 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
         for img in image_list:
             xref = img[0]
             
-            # QR-Code nur einmal pro xref dekodieren
-            if xref not in processed_xrefs:
+            # QR-Code nur einmal pro xref pro Karte dekodieren
+            if xref not in processed_xrefs_per_card[card_idx]:
                 img_pil = extract_image_from_pdf(doc, xref)
                 if img_pil is None:
-                    processed_xrefs.add(xref)
+                    processed_xrefs_per_card[card_idx].add(xref)
                     continue
 
                 qr_data = decode_qr_from_pil_image(img_pil)
@@ -116,7 +116,7 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
                 if qr_data and placeholder_string in qr_data:
                     matching_xrefs_per_card[card_idx].append((xref, page_num))
                     print(f"  -> Wird ersetzt für Karte {card_idx + 1}!")
-                processed_xrefs.add(xref)
+                processed_xrefs_per_card[card_idx].add(xref)
 
     # Zweiter Durchlauf: Alle Instanzen der matching xrefs pro Karte ersetzen
     replacements_made = 0
