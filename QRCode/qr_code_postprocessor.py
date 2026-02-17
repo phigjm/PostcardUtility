@@ -57,17 +57,45 @@ def decode_qr_from_pil_image(img_pil):
         return None
 
 
-def qr_code_postprocessor(input_pdf_path: str, replacement_image_path: str, output_pdf_path: str):
+def generate_qr_code_image(url, size=100):
     """
-    Prozessiert ein PDF: Überprüft alle Bilder auf QR-Codes, ersetzt Bilder mit QR-Code "weriosdisos" mit replacement.png,
-    löscht die Originalbilder und speichert als out.pdf.
+    Generiert ein QR-Code PIL Image für die gegebene URL.
     """
-    if not os.path.exists(replacement_image_path):
-        print(f"Replacement image {replacement_image_path} not found.")
-        return
+    qr_code = QrCodeWidget(url)
+    bounds = qr_code.getBounds()
+    qr_width = bounds[2] - bounds[0]
+    qr_height = bounds[3] - bounds[1]
+    
+    d = Drawing(size, size, transform=[size/qr_width, 0, 0, size/qr_height, 0, 0])
+    d.add(qr_code)
+    
+    # Create a temporary PDF to render the QR code
+    temp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix='.pdf')
+    temp_pdf.close()
+    
+    c = canvas.Canvas(temp_pdf.name, pagesize=(size, size))
+    renderPDF.draw(d, c, 0, 0)
+    c.save()
+    
+    # Convert PDF to PIL Image
+    doc = fitz.open(temp_pdf.name)
+    page = doc[0]
+    pix = page.get_pixmap()
+    img = Image.open(io.BytesIO(pix.tobytes()))
+    
+    doc.close()
+    os.unlink(temp_pdf.name)
+    
+    return img
 
+
+def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacement_urls: list, output_pdf_path: str):
+    """
+    Prozessiert ein PDF: Überprüft alle Bilder auf QR-Codes, ersetzt Bilder mit QR-Code containing placeholder_string
+    mit generierten QR-Codes für die replacement_urls in Reihenfolge.
+    """
     doc = fitz.open(input_pdf_path)
-    matching_xrefs = set()
+    matching_xrefs = []
     processed_xrefs = set()
 
     # Ersten Durchlauf: Alle QR-Codes analysieren und matching xrefs identifizieren
@@ -86,44 +114,54 @@ def qr_code_postprocessor(input_pdf_path: str, replacement_image_path: str, outp
                     continue
 
                 qr_data = decode_qr_from_pil_image(img_pil)
-                if qr_data:
-                    print(f"QR-Code mit xref {xref}: {qr_data}")
-                    if "whatsapp.com" in qr_data:  # Test mit vorhandenem QR-Code
-                        matching_xrefs.add(xref)
-                        print(f"  -> Wird ersetzt!")
-                else:
-                    print(f"Kein QR-Code in Bild xref {xref}")
+                if qr_data and placeholder_string in qr_data:
+                    print(f"QR-Code mit xref {xref} enthält Platzhalter: {qr_data}")
+                    matching_xrefs.append((xref, page_num))
+                    print(f"  -> Wird ersetzt!")
                 processed_xrefs.add(xref)
 
     if not matching_xrefs:
-        print("Keine QR-Codes mit 'weriosdisos' gefunden.")
+        print(f"Keine QR-Codes mit '{placeholder_string}' gefunden.")
         doc.close()
         return
 
+    if len(matching_xrefs) > len(replacement_urls):
+        print(f"Warnung: Mehr QR-Codes ({len(matching_xrefs)}) als replacement URLs ({len(replacement_urls)})")
+    
     # Zweiter Durchlauf: Alle Instanzen der matching xrefs ersetzen
     replacements_made = 0
-    for page_num in range(len(doc)):
+    for idx, (xref, page_num) in enumerate(matching_xrefs):
+        if idx >= len(replacement_urls):
+            break
+        replacement_url = replacement_urls[idx]
+        
         page = doc[page_num]
-        image_list = page.get_images(full=True)
-
-        for img in image_list:
-            xref = img[0]
-            if xref in matching_xrefs:
-                # Alle Rechtecke für dieses Bild auf dieser Seite holen
-                img_rects = page.get_image_rects(xref)
-                print(f"Ersetze Bild xref {xref} auf Seite {page_num + 1}, {len(img_rects)} Instanzen")
-                
-                for rect in img_rects:
-                    page.insert_image(rect, filename=replacement_image_path, keep_proportion=False)
-                    replacements_made += 1
+        img_rects = page.get_image_rects(xref)
+        print(f"Ersetze Bild xref {xref} auf Seite {page_num + 1}, {len(img_rects)} Instanzen mit URL: {replacement_url}")
+        
+        # Generiere QR-Code Bild
+        qr_img = generate_qr_code_image(replacement_url, size=100)  # Größe anpassen
+        
+        for rect in img_rects:
+            # Speichere temp Bild
+            temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+            qr_img.save(temp_img.name, 'PNG')
+            temp_img.close()
+            
+            page.insert_image(rect, filename=temp_img.name, keep_proportion=False)
+            os.unlink(temp_img.name)
+            replacements_made += 1
 
     print(f"Insgesamt {replacements_made} Bild-Instanzen ersetzt")
 
     # Dritter Durchlauf: Alle ersetzten xrefs aus dem Dokument entfernen
-    for page_num in range(len(doc)):
-        page = doc[page_num]
-        for xref in matching_xrefs:
-            page.delete_image(xref)
+    for xref, _ in matching_xrefs:
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            try:
+                page.delete_image(xref)
+            except:
+                pass  # Ignore if already deleted
 
     doc.save(output_pdf_path)
     doc.close()
@@ -137,6 +175,8 @@ if __name__ == "__main__":
 
     input_pdf = sys.argv[1]
     replacement_png = "replacement.png"
+    replacement_png = ".\\temp_images\\tmp1.png"
+    #replacement_png = ".\\temp_images\\qrcode.png"
     output_pdf = "out.pdf"
 
     qr_code_postprocessor(input_pdf, replacement_png, output_pdf)

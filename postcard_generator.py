@@ -17,10 +17,12 @@ import io
 try:
     from .postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
     from .postprocessor import format_pdf_for_postcard
+    from .QRCode.qr_code_postprocessor import qr_code_postprocessor
     from . import postcardformats
 except ImportError:
     from postcard_generate_text_side import generate_back_side, set_emoji_cache_dir
     from postprocessor import format_pdf_for_postcard
+    from QRCode.qr_code_postprocessor import qr_code_postprocessor
     import postcardformats
 
 
@@ -715,6 +717,21 @@ def generate_postcard_batch(
             with open(output_file, "wb") as output_pdf:
                 pdf_writer.write(output_pdf)
 
+            # QR Code postprocessing if PDF input and URLs provided
+            if is_pdf_input and any(item.get("url") for item in messages_and_addresses):
+                replacement_urls = [item.get("url") for item in messages_and_addresses if item.get("url")]
+                if replacement_urls:
+                    temp_processed = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                    temp_processed.close()
+                    qr_code_postprocessor(
+                        input_pdf_path=output_file,
+                        placeholder_string="card4u.org/demoqrcode",
+                        replacement_urls=replacement_urls,
+                        output_pdf_path=temp_processed.name
+                    )
+                    # Replace original with processed
+                    os.rename(temp_processed.name, output_file)
+
         finally:
             # Close and cleanup
             if should_close_front:
@@ -759,6 +776,19 @@ def generate_postcard_batch(
                 url=item_url,
                 sender_text=sender_text,
             )
+
+            # QR Code postprocessing if PDF input and URL provided
+            if is_pdf_input and item_url:
+                temp_processed = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+                temp_processed.close()
+                qr_code_postprocessor(
+                    input_pdf_path=postcard_file,
+                    placeholder_string="card4u.org/demoqrcode",
+                    replacement_urls=[item_url],
+                    output_pdf_path=temp_processed.name
+                )
+                # Replace original with processed
+                os.rename(temp_processed.name, postcard_file)
 
             generated_files.append(postcard_file)
 
