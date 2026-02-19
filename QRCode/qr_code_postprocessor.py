@@ -82,6 +82,7 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
     """
     Processes a PDF: Checks all images for QR codes, replaces images with QR codes containing placeholder_string
     with generated QR codes for the replacement_urls in order.
+    Each QR code gets a unique URL with pattern: base_url?q# where # is the sequential QR code version (starting from 1).
     pages_per_card: Number of pages per card, None for all pages as one card.
     """
     doc = fitz.open(input_pdf_path)
@@ -118,23 +119,29 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
                     print(f"  -> Will be replaced for card {card_idx + 1}!")
                 processed_xrefs_per_card[card_idx].add(xref)
 
-    # Second pass: Replace all instances of matching xrefs per card
+    # Second pass: Replace all instances of matching xrefs per card with unique URLs
     replacements_made = 0
+    
     for card_idx, xrefs in enumerate(matching_xrefs_per_card):
+        qr_code_counter = 2  # Counter for unique QR code versions per card, starting from 2 since ?q=1 is used in template
         if not xrefs:
             continue
-        replacement_url = replacement_urls[card_idx]
-        print(f"Replacing QR codes for card {card_idx + 1} with URL: {replacement_url}")
+        base_url = replacement_urls[card_idx]
+        print(f"Replacing QR codes for card {card_idx + 1} with base URL: {base_url}")
         
         for xref, page_num in xrefs:
             page = doc[page_num]
             img_rects = page.get_image_rects(xref)
             print(f"  Replacing image xref {xref} on page {page_num + 1}, {len(img_rects)} instances")
             
-            # Generate QR code image
-            qr_img = generate_qr_code_image(replacement_url)
-            
             for rect in img_rects:
+                # Generate unique URL for this QR code instance
+                unique_url = f"{base_url}?q{qr_code_counter}"
+                print(f"    -> QR code #{qr_code_counter}: {unique_url}")
+                
+                # Generate QR code image
+                qr_img = generate_qr_code_image(unique_url)
+                
                 # Save temp image with optimized compression
                 temp_img = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
                 qr_img.save(temp_img.name, 'PNG', optimize=True)
@@ -143,6 +150,7 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
                 page.insert_image(rect, filename=temp_img.name, keep_proportion=False)
                 os.unlink(temp_img.name)
                 replacements_made += 1
+                qr_code_counter += 1
 
     print(f"Total {replacements_made} image instances replaced")
 

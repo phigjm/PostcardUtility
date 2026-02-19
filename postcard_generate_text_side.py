@@ -318,7 +318,7 @@ def _draw_qr_code_and_url(canvas_obj, url, width, height, margin, divider_x, fon
     qr_y_top = qr_y + qr_size
     
     # Create QR code
-    qr_code = QrCodeWidget(url)
+    qr_code = QrCodeWidget(url+"?q=1") 
     bounds = qr_code.getBounds()
     qr_width = bounds[2] - bounds[0]
     qr_height = bounds[3] - bounds[1]
