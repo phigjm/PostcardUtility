@@ -16,3 +16,6 @@ qrcode[pil]
 comtypes; sys_platform == "win32"
 
 factur-x
+
+
+pyzbar #QR code 
