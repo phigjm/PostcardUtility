@@ -154,15 +154,14 @@ def qr_code_postprocessor(input_pdf_path: str, placeholder_string: str, replacem
 
     print(f"Total {replacements_made} image instances replaced")
 
-    # Third pass: Remove all replaced xrefs from the document
+    # Third pass: Remove all replaced xrefs from the document (only from pages where they appear)
     for xrefs in matching_xrefs_per_card:
-        for xref, _ in xrefs:
-            for page_num in range(total_pages):
-                page = doc[page_num]
-                try:
-                    page.delete_image(xref)
-                except:
-                    pass  # Ignore if already deleted
+        for xref, page_num in xrefs:
+            page = doc[page_num]
+            try:
+                page.delete_image(xref)
+            except:
+                pass  # Ignore if already deleted
 
     doc.save(output_pdf_path)
     doc.close()
