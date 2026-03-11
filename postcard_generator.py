@@ -57,6 +57,46 @@ def register_font(font_path):
     return font_name
 
 
+def enrich_warnings_with_card_info(warnings: dict, card_number: int, page_offset: int = 0) -> dict:
+    """
+    Enrich all warnings with card number and page information.
+    
+    This function adds metadata (card_number and page) to all warnings at the generator level,
+    making it unnecessary to pass card_number through every function in the hierarchy.
+    
+    :param warnings: Dict containing warnings from generate_back_side()
+    :param card_number: The postcard number (1-indexed)
+    :param page_offset: Page offset for this card:
+        - 0: Splitted/Single mode (page = card_number)
+        - 1: Joined/Compact mode with front+back (back page = card_number * 2)
+    :return: Enriched warnings dict with card_number and page information added
+    """
+    # Always add card metadata, even if warnings is empty
+    if page_offset == 1:
+        # Joined/Compact: Each card has 2 pages (front + back)
+        # Card 1 Front = Page 1, Card 1 Back = Page 2
+        # Card 2 Front = Page 3, Card 2 Back = Page 4
+        page = card_number * 2  # Back page (warnings are for back side)
+    else:
+        # Splitted/Single: Each card is separate
+        page = card_number
+    
+    enriched = {
+        'card_number': card_number,
+        'page': page,
+    }
+    
+    # Copy all existing warnings and add card_number to each nested warning
+    if warnings:
+        for key, value in warnings.items():
+            if isinstance(value, dict):
+                enriched[key] = {**value, 'card_number': card_number, 'page': enriched['page']}
+            else:
+                enriched[key] = value
+    
+    return enriched
+
+
 def _draw_image_on_canvas(
     c,
     image_path,
@@ -313,11 +353,11 @@ def generate_postcard(
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
-    :param warnings: Optional dict to collect warnings
+    :param warnings: Optional list to collect warnings (will be a single-element list)
     :param skip_bleed_border: If True, skip adding bleed border (use when frontend already has bleed area, default=True)
     """
     if warnings is None:
-        warnings = {}
+        warnings = []
     width, height = page_size
 
     # Set up emoji cache directory if emoji support is enabled
@@ -358,6 +398,7 @@ def generate_postcard(
         temp_text_pdf.close()
 
         # Generate text overlay (with compression)
+        text_warnings = {}
         c = canvas.Canvas(temp_text_pdf.name, pagesize=page_size, compress=True)
         generate_back_side(
             c=c,
@@ -370,11 +411,15 @@ def generate_postcard(
             enable_emoji=enable_emoji,
             text_color=text_color,
             url=url,
-            warnings=warnings,
+            warnings=text_warnings,
             category=category,
             sender_text=sender_text,
         )
         c.save()
+
+        # Enrich warnings with card number (single postcard = card 1, page 2 for back side)
+        enriched_warnings = enrich_warnings_with_card_info(text_warnings, card_number=1, page_offset=1)
+        warnings.append(enriched_warnings)
 
         # Merge pages
         pdf_writer = PdfWriter()
@@ -462,6 +507,7 @@ def generate_postcard(
         c.showPage()
 
         # --- BACK SIDE ---
+        text_warnings = {}
         generate_back_side(
             c=c,
             message=message,
@@ -473,10 +519,14 @@ def generate_postcard(
             enable_emoji=enable_emoji,
             text_color=text_color,
             url=url,
-            warnings=warnings,
+            warnings=text_warnings,
             category=category,
             sender_text=sender_text,
         )
+
+        # Enrich warnings with card number (single postcard = card 1, page 2 for back side)
+        enriched_warnings = enrich_warnings_with_card_info(text_warnings, card_number=1, page_offset=1)
+        warnings.append(enriched_warnings)
 
         # Save PDF
         c.save()
@@ -525,11 +575,11 @@ def generate_postcard_batch(
     :param enable_emoji: Enable colored emoji support (default=True)
     :param text_color: Text color for message and address (default='black')
     :param url: Optional URL to display as QR code in bottom right corner (default=None)
-    :param warnings: Optional dict to collect warnings
+    :param warnings: Optional list to collect warnings (one element per card, even if empty)
     :return: List of generated file paths
     """
     if warnings is None:
-        warnings = {}
+        warnings = []
     if not messages_and_addresses:
         raise ValueError("messages_and_addresses list cannot be empty")
 
@@ -589,10 +639,11 @@ def generate_postcard_batch(
                 pdf_writer.add_page(pdf_reader.pages[0])
 
         # Generate and add all message sides
-        for item in messages_and_addresses:
+        for idx, item in enumerate(messages_and_addresses, 1):
             message = item.get("message", "")
             address = item.get("address", "")
             item_url = item.get("url", url)
+            item_warnings = {}
 
             temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             temp_back.close()
@@ -609,11 +660,15 @@ def generate_postcard_batch(
                 enable_emoji=enable_emoji,
                 text_color=text_color,
                 url=item_url,
-                warnings=warnings,
+                warnings=item_warnings,
                 category=category,
                 sender_text=sender_text,
             )
             c.save()
+
+            # Enrich warnings with card number and page info, add to list
+            enriched_warnings = enrich_warnings_with_card_info(item_warnings, card_number=idx, page_offset=1)
+            warnings.append(enriched_warnings)
 
             with open(temp_back.name, "rb") as pdf_file:
                 pdf_reader = PdfReader(pdf_file)
@@ -678,7 +733,7 @@ def generate_postcard_batch(
 
         try:
             # Add front + back pairs
-            for item in messages_and_addresses:
+            for idx, item in enumerate(messages_and_addresses, 1):
                 # Add front side (clone the page so it doesn't depend on the reader)
                 pdf_writer.add_page(front_page)
 
@@ -686,6 +741,7 @@ def generate_postcard_batch(
                 message = item.get("message", "")
                 address = item.get("address", "")
                 item_url = item.get("url", url)
+                item_warnings = {}
 
                 temp_back = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
                 temp_back.close()
@@ -702,11 +758,15 @@ def generate_postcard_batch(
                     enable_emoji=enable_emoji,
                     text_color=text_color,
                     url=item_url,
-                    warnings=warnings,
+                    warnings=item_warnings,
                     category=category,
                     sender_text=sender_text,
                 )
                 c.save()
+
+                # Enrich warnings with card number and page info, add to list
+                enriched_warnings = enrich_warnings_with_card_info(item_warnings, card_number=idx, page_offset=1)
+                warnings.append(enriched_warnings)
 
                 temp_back_file = open(temp_back.name, "rb")
                 try:
@@ -776,8 +836,9 @@ def generate_postcard_batch(
             message = item.get("message", "")
             address = item.get("address", "")
             item_url = item.get("url", url)
+            item_warnings = {}
 
-            # Generate single postcard
+            # Generate single postcard with local warnings dict
             generate_postcard(
                 image_path=image_path,
                 message=message,
@@ -793,8 +854,13 @@ def generate_postcard_batch(
                 enable_emoji=enable_emoji,
                 text_color=text_color,
                 url=item_url,
+                warnings=item_warnings,
                 sender_text=sender_text,
             )
+
+            # Enrich warnings with card number and page info, add to list
+            enriched_warnings = enrich_warnings_with_card_info(item_warnings, card_number=idx)
+            warnings.append(enriched_warnings)
 
             # QR Code postprocessing if PDF input and URL provided
             if is_pdf_input and item_url:
