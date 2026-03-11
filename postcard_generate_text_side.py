@@ -119,7 +119,7 @@ def _draw_address_section(
     r, g, b = get_color_rgb(text_color)
     
     addr_x = divider_x + margin
-    address_font_size = 12
+    address_font_size = 9
 
     # Calculate available width for address
     available_width = width - divider_x - 2 * margin
